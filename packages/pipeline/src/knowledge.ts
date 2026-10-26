@@ -58,7 +58,8 @@ export const QUALITY_BAR = `Quality bar (a reviewer will check every point):
 - No exam-rule claims beyond the facts given. No promises of score gains.
 - One-to-one wording: never "class", "everyone", "students, …" or group work.
 - Original practice texts only; never reproduce published exam material.
-- Refer to the student by name or with they/them.`;
+- Refer to the student by name or with they/them.
+- Every model, "good" or revised sentence must itself meet the lesson objective (in a lesson on stating a position, every improved opening states a position). Check each one before answering.`;
 
 export function examFacts(exam: ExamId): string {
   return exam.startsWith('pte') ? PTE_FACTS : IELTS_FACTS;
@@ -84,16 +85,23 @@ export const ARTIFACT_RULES = {
 - Listening note gaps: ONE WORD AND/OR A NUMBER unless stated otherwise; keep gap answers short.
 - Passages are original, 150–350 words, written for this worksheet; add the note "Practice text written for this worksheet."
 - Set twoColumn true only when an exercise is mostly short items.
-- Include a "why" explanation for most objective items (locating clue or rule).`,
+- Include a "why" explanation for most objective items (locating clue or rule).
+- Re-order items: link the sentences with pronouns, connectors and given-new information so that exactly one order works; check this before answering.
+- Instructions say exactly what to write, the word limit and the time.`,
   script: `Lesson script rules:
 - Stages must add up exactly to the lesson length. First stage is retrieval; include a check stage near the end and a short homework stage.
 - Each stage: verbatim tutor talk in "say" steps (natural spoken English, short sentences, use || for a pause), "expect" for likely answers, "probe" for diagnostic follow-up questions (never "Do you understand?"), "action" for directions, "board" for what to write up.
 - Include at least two "fallback" steps: one for a tired or struggling student, one for finishing early.
-- Student talk or writing time at least half of the lesson.`,
+- Student talk or writing time at least half of the lesson.
+- The tutor glances at this during the lesson, so keep it short: about two printed pages in total. Each stage has at most 5 steps; each "say" is at most 3 short sentences; at most 3 expect or probe items per step. Do not script what the materials already contain.`,
   deck: `Slide deck rules (Beamer, 16:9):
 - 6–12 frames. Frame titles state the point as a full sentence (≤ 40 characters where possible).
 - Each frame has one block (two at most). Budgets: objectives 2–4 items ≤ 70 chars; compare original/revised ≤ 160 chars, one note per [[err:]] in the same order, notes ≤ 60 chars; flow 3–5 steps; cuecard task ≤ 90 chars with 3–4 cues; timed prompt ≤ 220 chars and ≤ 3 phases; reveal ≤ 4 steps ≤ 180 chars; wrapup ≤ 3 summary items, ≤ 2 words, ≤ 3 exit questions; aside ≤ 110 chars.
 - Use the student's real sentences in compare blocks. Use reveal only where the student should think before seeing the answer.
 - No tutor script on slides; the deck is what the student looks at.
-- End with a wrapup frame that contains an exit check.`,
+- The LAST frame must be a wrapup frame containing the exit check; no frame after it.
+- Hard limits (slides overflow otherwise): titles at most 40 characters (count them); at most about 50 words of visible text per frame; one block per frame unless both are tiny.
+- In compare blocks, mark every word that changes: each [[err:…]] in the original has a matching [[fix:…]] in the revision.
+- Use an aside only when the student needs a next step; at most one aside per three frames, never repeating the slide.
+- Slides are English only: no Chinese or other glosses (the slide fonts cannot show them). Wrap-up words: plain word, IPA without slashes or markup, a short English gloss.`,
 } as const;

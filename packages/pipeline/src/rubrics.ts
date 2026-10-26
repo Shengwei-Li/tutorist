@@ -51,7 +51,7 @@ export const RUBRICS: Record<'plan' | ArtifactKind, RubricItem[]> = {
   deck: [
     { id: 'S1', check: 'Titles state the point as a sentence; one idea per frame.' },
     { id: 'S2', check: 'No tutor script on slides; text within budget; nothing decorative.' },
-    { id: 'S3', check: 'Uses the student’s real sentences in compare frames, with errors correctly marked and explained.', hardGate: true },
+    { id: 'S3', check: 'Uses the student’s real sentences in compare frames, with errors correctly marked and explained, and every revised sentence itself meets the lesson objective.', hardGate: true },
     { id: 'S4', check: 'Reveal steps are used only where the student should think first.' },
     { id: 'S5', check: 'Ends with an exit check that tests the objectives.' },
     { id: 'S6', check: 'No invented exam rules; corrections are linguistically correct.', hardGate: true },

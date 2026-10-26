@@ -126,13 +126,15 @@ describe('LessonPipeline', () => {
 
   it('stops after two revision rounds and flags the tutor', async () => {
     const provider = new FakeProvider((spec) => (promptKind(spec.prompt) === 'review' ? review(2) : script));
-    const pipe = new LessonPipeline({ ...base(), provider });
+    const pipe = new LessonPipeline({ ...base(), provider, maxRevisions: 2 });
     await ws.writeLessonFile(studentId, lessonId, 'plan.json', plan90);
     await pipe.confirmPlan(studentId, lessonId, plan90);
     const { report } = await pipe.generate(studentId, lessonId, 'script');
-    expect(report.rounds).toBe(2);
+    // Two judged rounds, plus one targeted round for the remaining mechanical error (one fallback only).
+    expect(report.rounds).toBe(3);
     expect(report.passed).toBe(false);
     expect(provider.calls.filter((c) => promptKind(c.prompt) === 'review')).toHaveLength(3);
+    expect(provider.calls.at(-1)!.prompt).toContain('Change only what these problems require');
   });
 
   it('applies a tutor instruction as a revision', async () => {

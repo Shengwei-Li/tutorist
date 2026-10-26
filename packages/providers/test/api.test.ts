@@ -6,7 +6,7 @@ import { APICallError } from 'ai';
 import { MockLanguageModelV4 } from 'ai/test';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { ApiProvider, runStructured, type AgentEvent, type AgentRunSpec, type ApiConfig } from '../src/index.js';
+import { ApiProvider, portableSchema, runStructured, type AgentEvent, type AgentRunSpec, type ApiConfig } from '../src/index.js';
 
 type GenResult = Awaited<ReturnType<MockLanguageModelV4['doGenerate']>>;
 
@@ -125,6 +125,40 @@ describe('ApiProvider', () => {
     expect(await new ApiProvider({ ...cfg, apiKey: '' }).healthCheck()).toMatchObject({ ok: false });
     const compat = new ApiProvider({ ...cfg, gateway: 'openai-compatible' });
     expect(await compat.healthCheck()).toMatchObject({ ok: false, detail: expect.stringMatching(/base URL/) });
+  });
+
+  it('falls back to JSON mode when a provider rejects a strict schema, and remembers it', async () => {
+    const reject = () => {
+      throw new APICallError({ message: 'The compiled grammar is too large', url: 'x', requestBodyValues: {}, statusCode: 400, isRetryable: false });
+    };
+    let n = 0;
+    const models: MockLanguageModelV4[] = [];
+    const p = new ApiProvider({ ...cfg, models: { ...cfg.models, quality: 'strict-limited' } }, {
+      modelFactory: (id) => {
+        const m = new MockLanguageModelV4({ modelId: id, doGenerate: async (opts) => (opts.responseFormat?.type === 'json' && opts.responseFormat.schema ? reject() : (n++, text('{"label":"x","confidence":0.4}'))) });
+        models.push(m);
+        return m;
+      },
+    });
+    const r = await runStructured(p, spec(), Band);
+    expect(r).toMatchObject({ ok: true, value: { confidence: 0.4 } });
+    const fallback = models.at(-1)!.doGenerateCalls[0]!;
+    expect(fallback.responseFormat).toMatchObject({ type: 'json' });
+    expect(JSON.stringify(fallback.prompt)).toContain('conforms to this JSON Schema');
+    expect(ApiProvider.jsonModeModels.has('strict-limited')).toBe(true);
+    const before = models.length;
+    await runStructured(p, spec(), Band);
+    expect(models.length - before).toBe(1); // straight to JSON mode, no rejected strict attempt
+    expect(n).toBe(2);
+  });
+
+  it('makes schemas portable without touching property names', () => {
+    const s = z.object({ pattern: z.string().regex(/^a/), format: z.string(), list: z.array(z.string()).max(3), kind: z.literal('x'), u: z.discriminatedUnion('t', [z.object({ t: z.literal('a') }), z.object({ t: z.literal('b') })]) });
+    const js = JSON.stringify(portableSchema(z.toJSONSchema(s)));
+    expect(js).toContain('"pattern":{"type":"string"}');
+    expect(js).toContain('"format":{"type":"string"}');
+    expect(js).not.toMatch(/"maxItems"|"const"|"oneOf"|"\^a"/);
+    expect(js).toContain('"enum":["x"]');
   });
 
   it('maps tiers and passes explicit model ids through', () => {

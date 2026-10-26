@@ -132,22 +132,21 @@ export class TexEngine {
       };
       const timeoutMs = job.timeoutMs ?? 60_000;
       const xeArgs = ['-interaction=nonstopmode', '-halt-on-error', '-file-line-error', '-synctex=1', '-no-shell-escape'];
-      let run: Awaited<ReturnType<typeof runProcess>>;
-
-      if (info.latexmk) {
-        const args = ['-norc', '-xelatex', `-jobname=${jobname}`, ...xeArgs.map((a) => `-latexoption=${a}`)];
-        if (job.pretex) args.push(`-usepretex=${job.pretex}`);
-        run = await runProcess(info.latexmk, [...args, `${jobname}.tex`], { cwd: buildDir, env, timeoutMs, signal: job.signal });
-      } else {
-        // No latexmk (e.g. minimal installs): rerun xelatex until references settle, max 3 passes.
-        const src = job.pretex ? `${job.pretex}\\input{${jobname}.tex}` : `${jobname}.tex`;
-        run = { code: 0, output: '', timedOut: false, aborted: false };
-        for (let pass = 0; pass < 3; pass++) {
-          run = await runProcess(info.xelatex, [...xeArgs, `-jobname=${jobname}`, src], { cwd: buildDir, env, timeoutMs, signal: job.signal });
-          if (run.code !== 0 || run.timedOut || run.aborted) break;
-          const log = await readFile(path.join(buildDir, `${jobname}.log`), 'utf8').catch(() => '');
-          if (!/Rerun to get|Label\(s\) may have changed|rerunfilecheck/i.test(log)) break;
-        }
+      // xelatex is run directly, never through latexmk: on Windows latexmk's wrapper starts xelatex
+      // outside the process tree, so a cancelled or timed-out compile left a runaway TeX process behind.
+      // Passes repeat while the .aux file changes (as latexmk would), all within one time budget.
+      const src = job.pretex ? `${job.pretex}\\input{${jobname}.tex}` : `${jobname}.tex`;
+      const auxFile = path.join(buildDir, `${jobname}.aux`);
+      const deadline = Date.now() + timeoutMs;
+      let run: Awaited<ReturnType<typeof runProcess>> = { code: 0, output: '', timedOut: false, aborted: false };
+      let previousAux = await readFile(auxFile, 'utf8').catch(() => '');
+      for (let pass = 0; pass < 4; pass++) {
+        run = await runProcess(info.xelatex, [...xeArgs, `-jobname=${jobname}`, src], { cwd: buildDir, env, timeoutMs: Math.max(1000, deadline - Date.now()), signal: job.signal });
+        if (run.code !== 0 || run.timedOut || run.aborted) break;
+        const aux = await readFile(auxFile, 'utf8').catch(() => '');
+        const log = await readFile(path.join(buildDir, `${jobname}.log`), 'utf8').catch(() => '');
+        if (aux === previousAux && !/Rerun to get|Label\(s\) may have changed|rerunfilecheck/i.test(log)) break;
+        previousAux = aux;
       }
 
       const log = await readFile(path.join(buildDir, `${jobname}.log`), 'utf8').catch(() => run.output);

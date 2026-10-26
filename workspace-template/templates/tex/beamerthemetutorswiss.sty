@@ -24,8 +24,9 @@
   UprightFont=*-SemiBold, BoldFont=*-Bold, LetterSpace=-1.5]
 \newfontfamily\tutorInterTab{Inter}[Path=fonts/, Extension=.otf, Ligatures=TeX,
   UprightFont=*-Medium, BoldFont=*-SemiBold, Numbers={Lining,Monospaced}]
-\newfontfamily\tutorIPAFont{Inter}[Path=fonts/, Extension=.otf,
-  UprightFont=*-Regular, ItalicFont=*-Italic]   % Inter 4 covers the IPA used for English
+% The bundled Inter lacks IPA vowels such as ɪ (U+026A), so IPA uses Noto Sans (verified in a real compile).
+\newfontfamily\tutorIPAFont{NotoSans}[Path=fonts/, Extension=.ttf,
+  UprightFont=*-Regular, ItalicFont=*-Italic, Scale=MatchLowercase]
 
 %% ---------- geometry ----------
 \setbeamersize{text margin left=14mm, text margin right=14mm}

@@ -138,6 +138,11 @@ export function checkScript(doc: ScriptDoc, lessonMinutes: number): QaCheck[] {
   const add = (c: QaCheck) => out.push(c);
   const total = doc.stages.reduce((a, s) => a + s.minutes, 0);
   if (total !== lessonMinutes) add({ id: 'time-total', severity: 'error', message: `Stages add up to ${total} min; the lesson is ${lessonMinutes} min.` });
+  const words = JSON.stringify(doc.stages).split(/\s+/).length;
+  if (words > 1100) add({ id: 'length', severity: 'warning', message: `The script runs about ${words} words; aim for two printed pages (about 800).` });
+  for (const st of doc.stages) {
+    if (st.steps.length > 6) add({ id: 'length', severity: 'warning', message: `Stage "${st.title}" has ${st.steps.length} steps; keep it to five.`, nodeId: st.id });
+  }
   const fallbacks = doc.stages.flatMap((s) => s.steps).filter((s) => s.type === 'fallback').length;
   if (fallbacks < 2) add({ id: 'fallbacks', severity: 'error', message: `${fallbacks} fallback plan(s); include one for a struggling student and one for finishing early.` });
   for (const st of doc.stages) {
@@ -157,8 +162,12 @@ export function checkDeck(doc: DeckDoc): QaCheck[] {
   const out: QaCheck[] = [];
   const add = (c: QaCheck) => out.push(c);
   for (const f of doc.frames) {
+    if (/[㐀-鿿]/.test(JSON.stringify(f))) add({ id: 'deck-english', severity: 'error', message: 'Chinese text on a slide; slides are English only.', nodeId: f.id });
+  }
+  for (const f of doc.frames) {
     if (f.type !== 'frame') continue;
-    if (f.title.length > 48) add({ id: 'budget', severity: 'warning', message: `Title is ${f.title.length} characters: "${f.title}".`, nodeId: f.id });
+    if (f.title.length > 48) add({ id: 'budget', severity: 'error', message: `Title is ${f.title.length} characters (limit 40): "${f.title}".`, nodeId: f.id });
+    else if (f.title.length > 40) add({ id: 'budget', severity: 'warning', message: `Title is ${f.title.length} characters: "${f.title}".`, nodeId: f.id });
     for (const b of f.blocks) {
       if (b.type === 'compare') {
         const errs = (b.original.match(/\[\[err:/g) ?? []).length;
@@ -175,7 +184,7 @@ export function checkDeck(doc: DeckDoc): QaCheck[] {
     }
   }
   const last = [...doc.frames].reverse().find((f) => f.type === 'frame');
-  if (!(last?.type === 'frame' && last.blocks.some((b) => b.type === 'wrapup'))) add({ id: 'exit-check', severity: 'warning', message: 'The deck does not end with a wrap-up and exit check.' });
+  if (!(last?.type === 'frame' && last.blocks.some((b) => b.type === 'wrapup') && doc.frames.at(-1) === last)) add({ id: 'exit-check', severity: 'error', message: 'The last frame must be the wrap-up with the exit check.' });
   uniqueIds(doc.frames.map((f) => f.id), add);
   common(doc, add);
   return out;

@@ -33,6 +33,12 @@ export function parseTexLog(log: string, lineMap: CompileJob['lineMap'] = []): T
       push({ severity: 'error', message: l.slice(2).trim(), line: m ? Number(m[1]) : undefined, file: m ? 'main.tex' : undefined, context: m?.[2] });
       continue;
     }
+    // XeTeX prints a box (tofu) on the page for these; treat them as errors so they never reach a student.
+    const missing = /^Missing character: There is no (\S+) \((U\+[0-9A-F]+)\) in font \[?([^\]/]*?(?:\/[^\]/]*)*)\]?/.exec(l);
+    if (missing) {
+      push({ severity: 'error', message: `The font cannot show "${missing[1]}" (${missing[2]}); it would print as an empty box.`, context: missing[3] });
+      continue;
+    }
     const box = /^(Overfull|Underfull) \\[hv]box \((.+?)\).*?(?:at lines? (\d+)(?:--(\d+))?)?$/.exec(l);
     if (box) {
       if (box[1] === 'Overfull') push({ severity: 'badbox', message: `${box[1]} box (${box[2]})`, line: box[3] ? Number(box[3]) : undefined, file: box[3] ? 'main.tex' : undefined });

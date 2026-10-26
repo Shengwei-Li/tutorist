@@ -111,7 +111,11 @@ function provider(): AgentProvider {
     process.env.TUTORDESK_API_KEY ??
     { openrouter: process.env.OPENROUTER_API_KEY, anthropic: process.env.ANTHROPIC_API_KEY, openai: process.env.OPENAI_API_KEY, 'openai-compatible': undefined }[gateway] ??
     '';
-  return new ApiProvider({ gateway, apiKey, baseURL: process.env.TUTORDESK_EVAL_BASE_URL, models: DEFAULT_MODELS[gateway] });
+  // TUTORDESK_EVAL_QUALITY_MODEL / _REVIEW_MODEL let two models be compared on the same persona.
+  const models = { ...DEFAULT_MODELS[gateway] };
+  if (process.env.TUTORDESK_EVAL_QUALITY_MODEL) models.quality = process.env.TUTORDESK_EVAL_QUALITY_MODEL;
+  if (process.env.TUTORDESK_EVAL_REVIEW_MODEL) models.balanced = process.env.TUTORDESK_EVAL_REVIEW_MODEL;
+  return new ApiProvider({ gateway, apiKey, baseURL: process.env.TUTORDESK_EVAL_BASE_URL, models });
 }
 
 const pick = <T extends { id: string }>(all: T[], env?: string) => (env ? all.filter((x) => env.split(',').includes(x.id)) : all);

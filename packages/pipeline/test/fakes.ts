@@ -2,6 +2,7 @@ import type { LessonPlan, RubricReview, WritingReview } from '@tutordesk/core/ar
 import type { AgentEvent, AgentProvider, AgentRunSpec } from '@tutordesk/providers';
 
 export const plan90: LessonPlan = {
+  title: 'Task 2: a clear position',
   summary: 'Mina’s essays hide their position (E1) and add new ideas in the conclusion (E5), so this lesson builds a clear Task 2 position.',
   objectives: [
     { id: 'o1', text: 'Write a four-part outline for a new question in 5 minutes', criterion: 'all four parts present', checkedBy: 'st5' },

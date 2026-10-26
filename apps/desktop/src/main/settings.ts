@@ -72,6 +72,15 @@ export async function loadApiKey(gateway: AppSettings['api']['gateway']): Promis
   const envName = ENV_KEY[gateway];
   const env = process.env.TUTORDESK_API_KEY ?? (envName ? process.env[envName] : undefined);
   if (env) return env;
+  // Development convenience: <repo>/.secrets/<gateway>-key.txt (git-ignored).
+  if (!app.isPackaged) {
+    try {
+      const k = (await readFile(path.resolve(app.getAppPath(), '..', '..', '.secrets', `${gateway}-key.txt`), 'utf8')).trim();
+      if (k) return k;
+    } catch {
+      /* no dev key file */
+    }
+  }
   try {
     const data = await readFile(keyFile(), 'utf8');
     if (data.startsWith('plain:')) return Buffer.from(data.slice(6), 'base64').toString('utf8');

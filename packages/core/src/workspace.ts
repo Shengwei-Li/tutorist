@@ -73,6 +73,9 @@ export class WorkspaceService {
     }
     if (templateDir && (await exists(templateDir))) {
       await cp(templateDir, root, { recursive: true, force: false, errorOnExist: false });
+      // LaTeX classes, themes and fonts are app-owned: refresh them so fixes reach existing workspaces.
+      const tex = path.join(templateDir, 'templates', 'tex');
+      if (await exists(tex)) await cp(tex, path.join(root, 'templates', 'tex'), { recursive: true, force: true });
     }
     const manifestFile = path.join(root, 'workspace.json');
     if (!(await exists(manifestFile))) {

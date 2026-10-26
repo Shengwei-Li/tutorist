@@ -30,6 +30,7 @@ export const PlanStage = z.object({
 export type PlanStage = z.infer<typeof PlanStage>;
 
 export const LessonPlan = z.object({
+  title: z.string().max(50).describe('Short lesson title for headers, e.g. "Task 2: a clear position"'),
   summary: z.string().describe('One sentence: why this lesson, tied to the student evidence'),
   objectives: z
     .array(

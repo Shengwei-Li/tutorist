@@ -26,7 +26,9 @@ export interface ApiConfig {
  * teachers can override every tier in Settings.
  */
 export const DEFAULT_MODELS: Record<ApiGateway, Record<ModelTier, string>> = {
-  openrouter: { quality: 'anthropic/claude-opus-5.5', balanced: 'anthropic/claude-sonnet-5.5', fast: 'anthropic/claude-haiku-5.5' },
+  // Cost-first preset (checked on OpenRouter 2026-10-26): a strong writer for materials and a
+  // different model family as reviewer, which reduces self-grading bias; both read images.
+  openrouter: { quality: 'google/gemini-3.8-flash', balanced: 'deepseek/deepseek-v4.1-flash', fast: 'deepseek/deepseek-v4.1-flash' },
   anthropic: { quality: 'claude-opus-5-5', balanced: 'claude-sonnet-5-5', fast: 'claude-haiku-5-5' },
   openai: { quality: 'gpt-6.1-sol', balanced: 'gpt-6-astra', fast: 'gpt-6-luna' },
   'openai-compatible': { quality: '', balanced: '', fast: '' },
@@ -152,6 +154,13 @@ function buildTools(spec: AgentRunSpec, emit: (e: AgentEvent) => void): ToolSet 
   return tools;
 }
 
+/** A 400 saying the schema itself is too complex or unsupported (not a problem with the content). */
+export function isSchemaRejection(e: unknown): boolean {
+  if (!APICallError.isInstance(e) || e.statusCode !== 400) return false;
+  const text = `${e.message} ${typeof e.responseBody === 'string' ? e.responseBody : ''}`;
+  return /grammar|union|schema|too (large|complex|many)|invalid argument|response_format/i.test(text);
+}
+
 function errorEvent(e: unknown, sessionId: string): AgentEvent {
   if (APICallError.isInstance(e)) {
     const auth = e.statusCode === 401 || e.statusCode === 403;
@@ -173,6 +182,8 @@ export class ApiProvider implements AgentProvider {
   readonly id = 'api' as const;
   /** Conversation history per session so runStructured can ask for repairs. */
   private sessions = new Map<string, ModelMessage[]>();
+  /** Models whose provider rejected a strict schema; they get JSON mode from then on (process-wide). */
+  static jsonModeModels = new Set<string>();
 
   constructor(
     private readonly cfg: ApiConfig,
@@ -231,14 +242,14 @@ export class ApiProvider implements AgentProvider {
     const tools = buildTools(spec, emit);
     const hasTools = Object.keys(tools).length > 0;
 
-    try {
-      const model = this.opts.modelFactory ? this.opts.modelFactory(modelId) : createLanguageModel(this.cfg, modelId);
-      const result = await generateText({
-        model,
-        system: spec.systemAppend ? `${SYSTEM}\n\n${spec.systemAppend}` : SYSTEM,
+    const system = spec.systemAppend ? `${SYSTEM}\n\n${spec.systemAppend}` : SYSTEM;
+    const call = (jsonMode: boolean) =>
+      generateText({
+        model: this.opts.modelFactory ? this.opts.modelFactory(modelId) : createLanguageModel(this.cfg, modelId),
+        system: jsonMode && spec.outputSchema ? `${system}\n\nAnswer with one JSON object that conforms to this JSON Schema. No prose and no code fences.\n${JSON.stringify(spec.outputSchema)}` : system,
         messages: history,
         ...(hasTools ? { tools, stopWhen: stepCountIs(spec.budget?.maxTurns ?? 12) } : {}),
-        ...(spec.outputSchema ? { output: Output.object({ schema: jsonSchema(spec.outputSchema) }) } : {}),
+        ...(spec.outputSchema ? { output: jsonMode ? Output.json() : Output.object({ schema: jsonSchema(spec.outputSchema) }) } : {}),
         abortSignal: signal,
         maxRetries: 2,
         onStepFinish: (step) => {
@@ -249,6 +260,19 @@ export class ApiProvider implements AgentProvider {
           }
         },
       });
+
+    try {
+      let result: Awaited<ReturnType<typeof call>>;
+      const jsonMode = spec.outputSchema !== undefined && ApiProvider.jsonModeModels.has(modelId);
+      try {
+        result = await call(jsonMode);
+      } catch (e) {
+        // Some providers cap strict-schema complexity (Anthropic: 16 union fields, grammar size). Such a
+        // rejection costs nothing; retry in JSON mode, where our own validation stays just as strict.
+        if (!spec.outputSchema || jsonMode || !isSchemaRejection(e)) throw e;
+        ApiProvider.jsonModeModels.add(modelId);
+        result = await call(true);
+      }
       for (const e of queued.splice(0)) yield e;
 
       let structured: unknown;

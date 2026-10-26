@@ -21,3 +21,6 @@ prototypes/**/build/
 # local dev workspaces
 .tutordesk-dev/
 eval-results/
+
+# local secrets (API keys)
+.secrets/

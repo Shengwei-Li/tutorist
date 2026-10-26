@@ -2,7 +2,7 @@ import type { DeckBlock, DeckDoc } from '@tutordesk/core/artifacts';
 import { escapeLatex as esc } from '@tutordesk/tex';
 import { TexBuilder } from './builder.js';
 import type { RenderedTex } from './documents.js';
-import { renderInline } from './inline.js';
+import { plainText, renderInline } from './inline.js';
 
 export const BEAMER_THEME_NAMES = ['tutorswiss', 'tutorbook', 'tutorsheet', 'tutorfocus'] as const;
 export type BeamerThemeName = (typeof BEAMER_THEME_NAMES)[number];
@@ -78,7 +78,8 @@ function block(b: TexBuilder, blk: DeckBlock) {
       }
       if (blk.words.length) {
         b.line('      \\begin{wordlist}');
-        for (const w of blk.words) b.line(`        \\vocab{${esc(w.word)}}{${esc(w.ipa.replace(/^\/|\/$/g, ''))}}{${esc(w.gloss)}}`);
+        // Plain fields: the theme adds the slashes and styling, so strip any markup or slashes the model added.
+        for (const w of blk.words) b.line(`        \\vocab{${esc(plainText(w.word))}}{${esc(plainText(w.ipa).replace(/\//g, '').trim())}}{${esc(plainText(w.gloss))}}`);
         b.line('      \\end{wordlist}');
       }
       b.line('    \\column{0.49\\linewidth}').line('      \\begin{exitcheck}');

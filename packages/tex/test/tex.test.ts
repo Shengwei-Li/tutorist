@@ -29,6 +29,7 @@ describe('parseTexLog', () => {
     'Overfull \\hbox (12.5pt too wide) in paragraph at lines 20--22',
     'Underfull \\hbox (badness 10000) in paragraph at lines 5--5',
     'LaTeX Warning: Reference `x\' on page 1 undefined on input line 30.',
+    'Missing character: There is no ɪ (U+026A) in font [fonts/Inter-Regular.otf]/OT:script=latn;language=dflt;!',
   ].join('\n');
 
   it('extracts errors, overfull boxes and warnings, mapped to nodes', () => {
@@ -38,7 +39,26 @@ describe('parseTexLog', () => {
     expect(errs.find((e) => e.severity === 'badbox')).toMatchObject({ line: 20, nodeId: 'p2' });
     expect(errs.filter((e) => e.message.startsWith('Underfull'))).toHaveLength(0);
     expect(errs.find((e) => e.severity === 'warning')).toMatchObject({ line: 30 });
+    expect(errs.find((e) => e.message.includes('U+026A'))).toMatchObject({ severity: 'error' });
   });
+
+  it('every Beamer theme renders the IPA used in wrap-up words', async () => {
+    const tex = await detectSystemTex({ skipPackageCheck: true });
+    if (!tex) return;
+    const engine = new TexEngine();
+    for (const theme of ['tutorswiss', 'tutorbook', 'tutorsheet', 'tutorfocus']) {
+      const mainTex = [
+        '\\documentclass[aspectratio=169,10pt]{beamer}',
+        `\\usetheme{${theme}}`,
+        '\\title{IPA}\\examtag{x}\\lessonlabel{L1}\\learner{M}\\date{}',
+        '\\begin{document}',
+        '\\begin{frame}{IPA}\\begin{wordlist}\\vocab{restate}{riːˈsteɪt}{say again}\\vocab{position}{pəˈzɪʃən}{view}\\vocab{thorough}{ˈθʌrə}{careful}\\end{wordlist}\\end{frame}',
+        '\\end{document}',
+      ].join('\n');
+      const r = await engine.compile({ mainTex, templateDir: TEMPLATES });
+      expect(r.errors.filter((e) => e.severity === 'error'), `${theme}: ${r.errors.map((e) => e.message).join('; ')}`).toEqual([]);
+    }
+  }, 180_000);
 });
 
 const tex = await detectSystemTex({ skipPackageCheck: true });

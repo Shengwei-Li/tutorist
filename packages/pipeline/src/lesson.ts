@@ -155,7 +155,7 @@ export class LessonPipeline {
     };
     await this.o.ws.writeLessonFile(studentId, lessonId, 'plan.json', plan);
     await this.o.ws.writeLessonFile(studentId, lessonId, 'qa/plan.json', report);
-    await this.o.ws.updateLesson(studentId, lessonId, (l) => ({ ...l, planConfirmed: false, topic: l.topic || plan.summary.slice(0, 60) }));
+    await this.o.ws.updateLesson(studentId, lessonId, (l) => ({ ...l, planConfirmed: false, topic: l.topic || plan.title }));
     await this.o.ws.appendRunLog(studentId, lessonId, { step: 'plan', usd: this.usd, passed: report.passed });
     await this.o.ws.commit(studentId, `Plan lesson ${lessonId}`);
     this.emit({ type: 'step', step: 'plan', kind: 'plan', status: 'done' });
@@ -171,20 +171,27 @@ export class LessonPipeline {
 
   /* ───────────────── artifacts ───────────────── */
 
-  private async qa(kind: ArtifactKind, doc: ArtifactDoc, ctx: StudentContext, round: number) {
+  private async qa(kind: ArtifactKind, doc: ArtifactDoc, ctx: StudentContext, round: number, opts: { review?: boolean } = {}) {
     this.emit({ type: 'step', step: 'check', kind, status: 'start', round });
     const checks = checkArtifact(doc, ctx.lesson!.minutes);
     if (this.o.tex) {
       this.emit({ type: 'step', step: 'compile', kind, status: 'start', round });
       const r = this.render(doc, ctx);
+      // Markup the renderer did not consume would print literally on the page.
+      if (/\[\[|\\\{\\\{/.test(r.tex)) checks.push({ id: 'leftover-markup', severity: 'error', message: 'Markup ([[…]] or {{…}}) was used in a field that does not support it; write plain text there.' });
       const res = await this.o.tex.compile({ mainTex: r.tex, lineMap: r.lineMap, templateDir: this.o.templateDir, signal: this.o.signal });
       for (const e of res.errors) {
         if (e.severity === 'error') checks.push({ id: 'compile', severity: 'error', message: `LaTeX: ${e.message}${e.context ? ` near "${e.context}"` : ''}`, nodeId: e.nodeId });
-        else if (e.severity === 'badbox' && kind === 'deck') checks.push({ id: 'overflow', severity: 'warning', message: `Content too wide or tall: ${e.message}`, nodeId: e.nodeId });
+        else if (e.severity === 'badbox' && kind === 'deck') {
+          // Text running off the bottom of a slide is unusable; a hairline overrun to the side is not.
+          const tall = /([\d.]+)pt too high/.exec(e.message);
+          const severe = tall !== null && Number(tall[1]) > 5;
+          checks.push({ id: 'overflow', severity: severe ? 'error' : 'warning', message: severe ? `A slide overflows at the bottom by ${Math.round(Number(tall![1]))}pt: shorten it or split it into two frames.` : `Content slightly too wide: ${e.message}`, nodeId: e.nodeId });
+        }
       }
     }
     let review: RubricReview | undefined;
-    if (this.o.review !== false) {
+    if (this.o.review !== false && opts.review !== false) {
       this.emit({ type: 'step', step: 'review', kind, status: 'start', round });
       review = await this.structured(kind, ctx, ctx.profile.id, reviewPrompt(kind, ctx.text, JSON.stringify(doc)), RubricReview, this.o.tiers?.review ?? 'balanced');
     }
@@ -202,7 +209,8 @@ export class LessonPipeline {
 
     this.emit({ type: 'step', step: 'generate', kind, status: 'start' });
     let doc = await this.structured(kind, ctx, studentId, artifactPrompt(kind, ctx.text, plan, ctx.lesson!.minutes), schema, tier);
-    const maxRounds = this.o.maxRevisions ?? 2;
+    // One automatic revision by default: most of the gain at half the cost of two (eval, 2026-10-26).
+    const maxRounds = this.o.maxRevisions ?? 1;
     let { checks, review } = await this.qa(kind, doc, ctx, 0);
     let rounds = 0;
     const ok = () => !checks.some((c) => c.severity === 'error') && (!review || rubricPasses(review.scores));
@@ -211,6 +219,19 @@ export class LessonPipeline {
       this.emit({ type: 'step', step: 'revise', kind, status: 'start', round: rounds });
       doc = await this.structured(kind, ctx, studentId, `${ctx.text}\n\n${revisePrompt(kind, JSON.stringify(doc, null, 2), problemsFrom(checks, review?.scores ?? []))}`, schema, tier);
       ({ checks, review } = await this.qa(kind, doc, ctx, rounds));
+    }
+    // Mechanical errors (overflow, length, missing glyphs, compile) leave a document unusable, and fixing
+    // them needs no judgement: allow one extra targeted round for those alone, without re-reviewing.
+    const mechanical = checks.filter((c) => c.severity === 'error');
+    if (mechanical.length && rounds === maxRounds) {
+      rounds++;
+      this.emit({ type: 'step', step: 'revise', kind, status: 'start', round: rounds });
+      const fixed = await this.structured(kind, ctx, studentId, `${ctx.text}\n\n${revisePrompt(kind, JSON.stringify(doc, null, 2), problemsFrom(mechanical, []))}\nChange only what these problems require.`, schema, tier);
+      const recheck = await this.qa(kind, fixed, ctx, rounds, { review: false });
+      if (recheck.checks.filter((c) => c.severity === 'error').length < mechanical.length) {
+        doc = fixed;
+        checks = recheck.checks;
+      }
     }
     return this.save(studentId, lessonId, kind, doc, checks, review, rounds);
   }
