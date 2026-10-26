@@ -1,19 +1,30 @@
 import { randomUUID } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { copyFile, mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { app, dialog, ipcMain, shell, type WebContents } from 'electron';
 import { z } from 'zod';
-import { NewStudentInput, WorkspaceService } from '@tutordesk/core';
-import { ClaudeCliProvider, runStructured } from '@tutordesk/providers';
+import { NewStudentInput, readJson, WorkspaceService } from '@tutordesk/core';
+import { ARTIFACT_SCHEMAS, ArtifactKind, LessonPlan, type ArtifactDoc } from '@tutordesk/core/artifacts';
+import { LessonPipeline, WritingReviewer, type PipelineEvent } from '@tutordesk/pipeline';
+import { ApiProvider, ClaudeCliProvider, DEFAULT_MODELS, type AgentProvider } from '@tutordesk/providers';
 import { TexEngine } from '@tutordesk/tex';
-import { BEAMER_THEMES, type CompileOutcome, type CompileSampleRequest, type DesktopApi, type StudentDetail, type TexStatus } from '../shared/ipc.js';
-import { loadSettings, saveSettings } from './settings.js';
+import {
+  BEAMER_THEMES,
+  type BeamerTheme,
+  type CompileOutcome,
+  type CompileSampleRequest,
+  type EditionMode,
+  type LessonDetail,
+  type RunEvent,
+  type StudentDetail,
+  type SubmissionDetail,
+  type TexStatus,
+} from '../shared/ipc.js';
+import { loadApiKey, loadSettings, saveSettings, storeApiKey } from './settings.js';
 
 /** Bundled workspace template: repo folder in development, resources folder when packaged. */
 function templateRoot(): string {
-  return app.isPackaged
-    ? path.join(process.resourcesPath, 'workspace-template')
-    : path.resolve(app.getAppPath(), '..', '..', 'workspace-template');
+  return app.isPackaged ? path.join(process.resourcesPath, 'workspace-template') : path.resolve(app.getAppPath(), '..', '..', 'workspace-template');
 }
 
 let workspace: WorkspaceService | undefined;
@@ -24,6 +35,14 @@ async function ws(): Promise<WorkspaceService> {
 }
 
 const claude = new ClaudeCliProvider({ auth: 'subscription' });
+
+async function provider(): Promise<AgentProvider> {
+  if (process.env.TUTORDESK_FAKE_AI === '1') return (await import('./fake-ai.js')).createFakeProvider();
+  const s = await loadSettings();
+  if (s.aiBackend === 'claude-cli') return claude;
+  return new ApiProvider({ gateway: s.api.gateway, apiKey: await loadApiKey(s.api.gateway), baseURL: s.api.baseURL || undefined, models: s.api.models });
+}
+
 let tex: TexEngine | undefined;
 async function texEngine(): Promise<TexEngine> {
   const { texBinDir } = await loadSettings();
@@ -31,17 +50,51 @@ async function texEngine(): Promise<TexEngine> {
   return tex;
 }
 
-const SAMPLE_FILES: Record<CompileSampleRequest['doc'], string> = {
-  handout: 'handout-peel.tex',
-  worksheet: 'worksheet-mixed.tex',
-  script: 'lesson-script.tex',
-  deck: 'deck.tex',
-};
+const texDir = async () => path.join((await ws()).root, 'templates', 'tex');
+
+async function pipeline(onEvent?: (e: PipelineEvent) => void, signal?: AbortSignal): Promise<LessonPipeline> {
+  const s = await loadSettings();
+  const engine = await texEngine();
+  const hasTex = (await engine.detect()) !== null;
+  return new LessonPipeline({
+    ws: await ws(),
+    provider: await provider(),
+    tex: hasTex ? engine : undefined,
+    templateDir: await texDir(),
+    studio: s.studio,
+    tutorName: s.tutorName || s.studio.name,
+    onEvent,
+    signal,
+  });
+}
+
+/* ───────────────── runs: long AI jobs streamed to the renderer ───────────────── */
+
+const runs = new Map<string, AbortController>();
+
+function startRun(sender: WebContents, job: (emit: (e: RunEvent) => void, signal: AbortSignal) => Promise<unknown>): string {
+  const runId = randomUUID();
+  const ac = new AbortController();
+  runs.set(runId, ac);
+  const emit = (e: RunEvent) => {
+    if (!sender.isDestroyed()) sender.send('run:event', runId, e);
+  };
+  void job(emit, ac.signal).then(
+    (result) => emit({ type: 'finished', ok: true, result }),
+    (e: Error) => emit({ type: 'finished', ok: false, error: ac.signal.aborted ? 'Cancelled' : e.message }),
+  ).finally(() => runs.delete(runId));
+  return runId;
+}
+
+const toRunEvent = (e: PipelineEvent): RunEvent => (e.type === 'agent' ? { type: 'agent', kind: e.kind, event: e.event } : e);
+
+/* ───────────────── samples (Settings → Typesetting) ───────────────── */
+
+const SAMPLE_FILES: Record<CompileSampleRequest['doc'], string> = { handout: 'handout-peel.tex', worksheet: 'worksheet-mixed.tex', script: 'lesson-script.tex', deck: 'deck.tex' };
 
 async function compileSample(req: CompileSampleRequest): Promise<CompileOutcome> {
-  const w = await ws();
-  const texDir = path.join(w.root, 'templates', 'tex');
-  const samples = path.join(texDir, 'samples');
+  const dir = await texDir();
+  const samples = path.join(dir, 'samples');
   let mainTex = await readFile(path.join(samples, SAMPLE_FILES[req.doc]), 'utf8');
   const files: Record<string, string> = {};
   if (req.doc === 'deck') {
@@ -49,68 +102,55 @@ async function compileSample(req: CompileSampleRequest): Promise<CompileOutcome>
     mainTex = mainTex.replace(/\\usetheme\{[^}]+\}/, `\\usetheme{${theme}}`);
     files['lesson-peel.tex'] = await readFile(path.join(samples, 'lesson-peel.tex'), 'utf8');
   }
-  const engine = await texEngine();
-  const r = await engine.compileLatest(`sample:${req.doc}`, {
-    mainTex,
-    files,
-    templateDir: texDir,
-    pretex: req.doc === 'deck' || req.mode === 'student' ? undefined : `\\def\\TDmode{${req.mode}}`,
-  });
-  return {
-    ok: r.ok,
-    pdf: r.pdf ? new Uint8Array(r.pdf) : undefined,
-    durationMs: r.durationMs,
-    errors: r.errors.filter((e) => e.severity !== 'badbox').slice(0, 20),
-    engine: `${r.engine.version}`,
-  };
+  const r = await (await texEngine()).compileLatest(`sample:${req.doc}`, { mainTex, files, templateDir: dir, pretex: req.doc === 'deck' || req.mode === 'student' ? undefined : `\\def\\TDmode{${req.mode}}` });
+  return { ok: r.ok, pdf: r.pdf ? new Uint8Array(r.pdf) : undefined, durationMs: r.durationMs, errors: r.errors.filter((e) => e.severity !== 'badbox').slice(0, 20), engine: r.engine.version };
 }
 
-/** Test task for the connection screen: one structured answer through the user's own Claude Code login. */
-const BandLabel = z.object({
-  label: z.string().describe('Short CEFR-style descriptor for the band'),
-  overall: z.number().describe('IELTS overall band after rounding'),
-  explanation: z.string().describe('One sentence explaining the rounding'),
-});
+/* ───────────────── IPC ───────────────── */
 
-const runs = new Map<string, AbortController>();
+const FILE_OF: Record<ArtifactKind, string> = { handout: 'handout.json', worksheet: 'worksheet.json', script: 'script.json', deck: 'deck.json' };
 
-async function startTestRun(sender: WebContents): Promise<string> {
-  const runId = randomUUID();
-  const ac = new AbortController();
-  runs.set(runId, ac);
+async function lessonDetail(studentId: string, lessonId: string): Promise<LessonDetail> {
   const w = await ws();
-  const send = (ev: unknown) => {
-    if (!sender.isDestroyed()) sender.send('agent:event', runId, ev);
-  };
-  void runStructured(
-    claude,
-    {
-      taskType: 'extract',
-      workspaceRoot: w.root,
-      model: 'haiku',
-      prompt: 'An IELTS candidate scored Listening 6.5, Reading 7.0, Writing 6.0, Speaking 6.0. Give the overall band using official rounding, a short label, and one sentence explaining the rounding.',
-      permissions: { writableGlobs: [], readableGlobs: [], allowShell: false, allowNetwork: false },
-      budget: { maxUsd: 0.05 },
-    },
-    BandLabel,
-    { signal: ac.signal, onEvent: send },
-  ).then((r) => {
-    runs.delete(runId);
-    send({ type: 'finished', result: r.ok ? { ok: true, value: r.value, attempts: r.attempts, usd: r.usd } : { ok: false, error: r.error, issues: r.issues, attempts: r.attempts, usd: r.usd } });
-  });
-  return runId;
+  const lesson = await w.readLesson(studentId, lessonId);
+  const plan = await w.readLessonJson(studentId, lessonId, 'plan.json', LessonPlan).catch(() => null);
+  const docs: LessonDetail['docs'] = {};
+  const qa: LessonDetail['qa'] = {};
+  for (const k of ArtifactKind.options) {
+    const d = await w.readLessonJson(studentId, lessonId, FILE_OF[k], ARTIFACT_SCHEMAS[k] as z.ZodType<ArtifactDoc>).catch(() => null);
+    if (d) docs[k] = d;
+  }
+  for (const k of [...ArtifactKind.options, 'plan' as const]) {
+    const r = await w.readLessonJson(studentId, lessonId, `qa/${k}.json`, z.any()).catch(() => null);
+    if (r) qa[k] = r;
+  }
+  return { lesson, plan, docs, qa };
 }
 
-type Handlers = {
-  [K in keyof DesktopApi]: { [M in keyof DesktopApi[K]]: DesktopApi[K][M] };
-};
+const MEDIA: Record<string, string> = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif' };
+
+async function submissionDetail(studentId: string, subId: string): Promise<SubmissionDetail> {
+  const w = await ws();
+  const { meta, text, dir } = await w.readSubmission(studentId, subId);
+  const r = await readJson(path.join(dir, 'review.json'), z.any());
+  let image: string | undefined;
+  if (meta.original && MEDIA[path.extname(meta.original).toLowerCase()]) {
+    image = `data:${MEDIA[path.extname(meta.original).toLowerCase()]};base64,${(await readFile(path.join(dir, meta.original))).toString('base64')}`;
+  }
+  return { meta, text, review: r.ok ? r.value : null, image };
+}
+
+function today(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
 
 export function registerIpc(): void {
-  const h = (channel: string, fn: (event: Electron.IpcMainInvokeEvent, ...args: never[]) => unknown) =>
-    ipcMain.handle(channel, (e, ...args) => fn(e, ...(args as never[])));
+  const h = (channel: string, fn: (event: Electron.IpcMainInvokeEvent, ...args: never[]) => unknown) => ipcMain.handle(channel, (e, ...args) => fn(e, ...(args as never[])));
 
+  // settings
   h('settings:get', () => loadSettings());
-  h('settings:update', (_e, patch: Parameters<Handlers['settings']['update']>[0]) => {
+  h('settings:update', (_e, patch: Parameters<typeof saveSettings>[0]) => {
     tex = undefined;
     return saveSettings(patch);
   });
@@ -119,35 +159,99 @@ export function registerIpc(): void {
     if (r.canceled || !r.filePaths[0]) return null;
     return saveSettings({ workspaceRoot: r.filePaths[0] });
   });
+  h('settings:setApiKey', (_e, key: string) => storeApiKey(key.trim()));
+  h('settings:hasApiKey', async () => !!(await loadApiKey((await loadSettings()).api.gateway)));
+  h('settings:defaultModels', (_e, gateway: keyof typeof DEFAULT_MODELS) => DEFAULT_MODELS[gateway]);
 
-  h('students:list', async () => {
-    const list = await (await ws()).listStudents();
-    return list.map((s) => (s.ok ? { ok: true, profile: s.profile } : { ok: false, id: s.id, issues: s.issues }));
-  });
+  // students
+  h('students:list', async () => (await (await ws()).listStudents()).map((s) => (s.ok ? { ok: true, profile: s.profile } : { ok: false, id: s.id, issues: s.issues })));
   h('students:create', async (_e, input: unknown) => (await ws()).createStudent(NewStudentInput.parse(input)));
   h('students:get', async (_e, id: string): Promise<StudentDetail> => {
     const w = await ws();
     const profile = await w.readProfile(id);
     if (!profile.ok) throw new Error(profile.issues.join('; '));
-    const [lessons, errors, history] = await Promise.all([w.listLessons(id), w.readErrors(id), w.history(id, 15)]);
-    return { profile: profile.value, lessons, errors: errors.items, history, dir: await w.studentDir(id) };
+    const [lessons, errors, history, submissions] = await Promise.all([w.listLessons(id), w.readErrors(id), w.history(id, 15), w.listSubmissions(id)]);
+    return { profile: profile.value, lessons, errors: errors.items, history, submissions, dir: await w.studentDir(id) };
   });
   h('students:createLesson', async (_e, id: string, opts: { date: string; topic?: string; minutes?: number }) => (await ws()).createLesson(id, opts));
   h('students:reveal', async (_e, id: string) => {
     await shell.openPath(await (await ws()).studentDir(id));
   });
 
-  h('health:claude', () => claude.healthCheck());
-  h('health:tex', async (_e, refresh?: boolean): Promise<TexStatus> => {
-    const info = await (await texEngine()).detect(refresh ?? false);
-    return info
-      ? { found: true, kind: info.kind, version: info.version, binDir: info.binDir, hasLatexmk: !!info.latexmk, missingFiles: info.missingFiles }
-      : { found: false, missingFiles: [] };
+  // lessons
+  h('lessons:get', (_e, s: string, l: string) => lessonDetail(s, l));
+  h('lessons:setBrief', async (_e, s: string, l: string, brief: string) => (await ws()).updateLesson(s, l, (x) => ({ ...x, brief })));
+  h('lessons:attachMaterial', async (_e, s: string, l: string) => {
+    const r = await dialog.showOpenDialog({ properties: ['openFile', 'multiSelections'], filters: [{ name: 'Text', extensions: ['txt', 'md'] }] });
+    if (r.canceled || !r.filePaths.length) return null;
+    const w = await ws();
+    const dir = path.join(await w.studentDir(s), 'materials', 'parsed');
+    await mkdir(dir, { recursive: true });
+    const added: string[] = [];
+    for (const f of r.filePaths) {
+      const name = `${l}-${path.basename(f).replace(/[^\w.-]+/g, '_')}`;
+      await copyFile(f, path.join(dir, name));
+      added.push(`materials/parsed/${name}`);
+    }
+    return w.updateLesson(s, l, (x) => ({ ...x, materials: [...new Set([...x.materials, ...added])] }), `Attach materials to ${l}`);
   });
-  h('tex:compileSample', (_e, req: CompileSampleRequest) => compileSample(req));
+  h('lessons:plan', (e, s: string, l: string, opts: { brief?: string; outputs: ArtifactKind[] }) =>
+    startRun(e.sender, async (emit, signal) => (await pipeline((ev) => emit(toRunEvent(ev)), signal)).plan(s, l, opts)),
+  );
+  h('lessons:confirmPlan', async (_e, s: string, l: string, plan: unknown) => (await pipeline()).confirmPlan(s, l, LessonPlan.parse(plan)));
+  h('lessons:generate', (e, s: string, l: string, kinds: ArtifactKind[]) =>
+    startRun(e.sender, async (emit, signal) => {
+      const p = await pipeline((ev) => emit(toRunEvent(ev)), signal);
+      const out: Record<string, boolean> = {};
+      for (const k of kinds) out[k] = (await p.generate(s, l, k)).report.passed;
+      return out;
+    }),
+  );
+  h('lessons:revise', (e, s: string, l: string, kind: ArtifactKind, instruction: string) =>
+    startRun(e.sender, async (emit, signal) => (await (await pipeline((ev) => emit(toRunEvent(ev)), signal)).revise(s, l, kind, instruction)).report.passed),
+  );
+  h('lessons:exportPdf', async (_e, s: string, l: string, kind: ArtifactKind, mode: EditionMode, theme?: BeamerTheme): Promise<CompileOutcome> => {
+    const r = await (await pipeline()).exportPdf(s, l, kind, mode, theme ?? (await loadSettings()).beamerTheme);
+    return { ok: r.ok, pdf: r.pdf ? new Uint8Array(r.pdf) : undefined, durationMs: r.durationMs, errors: r.errors.filter((x) => x.severity === 'error') };
+  });
+  h('lessons:revealOutput', async (_e, s: string, l: string) => {
+    const dir = path.join(await (await ws()).lessonDir(s, l), 'out');
+    await mkdir(dir, { recursive: true });
+    await shell.openPath(dir);
+  });
 
-  h('agent:testRun', (e) => startTestRun(e.sender));
-  h('agent:cancel', (_e, runId: string) => {
+  // submissions
+  h('submissions:createText', async (_e, s: string, input: { kind: 'writing-task1' | 'writing-task2'; prompt: string; text: string }) => (await ws()).createSubmission(s, { ...input, date: today() }));
+  h('submissions:createFromImage', async (_e, s: string, kind: 'writing-task1' | 'writing-task2') => {
+    const r = await dialog.showOpenDialog({ properties: ['openFile'], filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp'] }] });
+    if (r.canceled || !r.filePaths[0]) return null;
+    return (await ws()).createSubmission(s, { kind, image: { name: path.basename(r.filePaths[0]), data: await readFile(r.filePaths[0]) }, date: today() });
+  });
+  h('submissions:get', (_e, s: string, sub: string) => submissionDetail(s, sub));
+  h('submissions:confirmText', async (_e, s: string, sub: string, text: string, prompt: string) => new WritingReviewer({ ws: await ws(), provider: await provider() }).confirmText(s, sub, text, prompt));
+  h('submissions:transcribe', (e, s: string, sub: string) =>
+    startRun(e.sender, async (emit, signal) => new WritingReviewer({ ws: await ws(), provider: await provider(), signal, onEvent: (event) => emit({ type: 'agent', kind: 'transcribe', event }) }).transcribe(s, sub)),
+  );
+  h('submissions:review', (e, s: string, sub: string) =>
+    startRun(e.sender, async (emit, signal) => {
+      emit({ type: 'step', step: 'review', kind: 'writing', status: 'start' });
+      return new WritingReviewer({ ws: await ws(), provider: await provider(), signal, onEvent: (event) => emit({ type: 'agent', kind: 'writing', event }) }).review(s, sub);
+    }),
+  );
+  h('submissions:finalise', async (_e, s: string, sub: string, finalBands: Record<string, number>, accepted: number[]) =>
+    new WritingReviewer({ ws: await ws(), provider: await provider() }).finalise(s, sub, { finalBands, accepted }),
+  );
+
+  // runs
+  h('runs:cancel', (_e, runId: string) => {
     runs.get(runId)?.abort();
   });
+
+  // health
+  h('health:ai', async () => ({ ...(await (await provider()).healthCheck()), backend: (await loadSettings()).aiBackend }));
+  h('health:tex', async (_e, refresh?: boolean): Promise<TexStatus> => {
+    const info = await (await texEngine()).detect(refresh ?? false);
+    return info ? { found: true, kind: info.kind, version: info.version, binDir: info.binDir, hasLatexmk: !!info.latexmk, missingFiles: info.missingFiles } : { found: false, missingFiles: [] };
+  });
+  h('tex:compileSample', (_e, req: CompileSampleRequest) => compileSample(req));
 }

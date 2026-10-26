@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { DesktopApi } from '../shared/ipc.js';
+import type { DesktopApi, RunEvent } from '../shared/ipc.js';
 
 const invoke = (channel: string, ...args: unknown[]) => ipcRenderer.invoke(channel, ...args);
 
@@ -8,6 +8,9 @@ const api: DesktopApi = {
     get: () => invoke('settings:get'),
     update: (patch) => invoke('settings:update', patch),
     chooseWorkspace: () => invoke('settings:chooseWorkspace'),
+    setApiKey: (key) => invoke('settings:setApiKey', key),
+    hasApiKey: () => invoke('settings:hasApiKey'),
+    defaultModels: (gateway) => invoke('settings:defaultModels', gateway),
   },
   students: {
     list: () => invoke('students:list'),
@@ -16,21 +19,40 @@ const api: DesktopApi = {
     createLesson: (id, opts) => invoke('students:createLesson', id, opts),
     reveal: (id) => invoke('students:reveal', id),
   },
+  lessons: {
+    get: (s, l) => invoke('lessons:get', s, l),
+    setBrief: (s, l, brief) => invoke('lessons:setBrief', s, l, brief),
+    attachMaterial: (s, l) => invoke('lessons:attachMaterial', s, l),
+    plan: (s, l, opts) => invoke('lessons:plan', s, l, opts),
+    confirmPlan: (s, l, plan) => invoke('lessons:confirmPlan', s, l, plan),
+    generate: (s, l, kinds) => invoke('lessons:generate', s, l, kinds),
+    revise: (s, l, kind, instruction) => invoke('lessons:revise', s, l, kind, instruction),
+    exportPdf: (s, l, kind, mode, theme) => invoke('lessons:exportPdf', s, l, kind, mode, theme),
+    revealOutput: (s, l) => invoke('lessons:revealOutput', s, l),
+  },
+  submissions: {
+    createText: (s, input) => invoke('submissions:createText', s, input),
+    createFromImage: (s, kind) => invoke('submissions:createFromImage', s, kind),
+    get: (s, sub) => invoke('submissions:get', s, sub),
+    confirmText: (s, sub, text, prompt) => invoke('submissions:confirmText', s, sub, text, prompt),
+    transcribe: (s, sub) => invoke('submissions:transcribe', s, sub),
+    review: (s, sub) => invoke('submissions:review', s, sub),
+    finalise: (s, sub, bands, accepted) => invoke('submissions:finalise', s, sub, bands, accepted),
+  },
+  runs: {
+    cancel: (runId) => invoke('runs:cancel', runId),
+    onEvent: (cb) => {
+      const listener = (_e: Electron.IpcRendererEvent, runId: string, ev: RunEvent) => cb(runId, ev);
+      ipcRenderer.on('run:event', listener);
+      return () => ipcRenderer.removeListener('run:event', listener);
+    },
+  },
   health: {
-    claude: () => invoke('health:claude'),
+    ai: () => invoke('health:ai'),
     tex: (refresh) => invoke('health:tex', refresh),
   },
   tex: {
     compileSample: (req) => invoke('tex:compileSample', req),
-  },
-  agent: {
-    testRun: () => invoke('agent:testRun'),
-    cancel: (runId) => invoke('agent:cancel', runId),
-    onEvent: (cb) => {
-      const listener = (_e: Electron.IpcRendererEvent, runId: string, ev: Parameters<typeof cb>[1]) => cb(runId, ev);
-      ipcRenderer.on('agent:event', listener);
-      return () => ipcRenderer.removeListener('agent:event', listener);
-    },
   },
 };
 

@@ -3,3 +3,4 @@ export { which, parseCmdShim, execText, killTree, LineSplitter, type ResolvedCom
 export * from './claude-events.js';
 export * from './claude-cli.js';
 export * from './structured.js';
+export * from './api.js';

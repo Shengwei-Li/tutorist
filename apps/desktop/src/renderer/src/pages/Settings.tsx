@@ -1,105 +1,136 @@
-import { Button, Field, KeyValue, Panel, Select, StatusMark } from '@tutordesk/ui';
-import { useEffect, useRef, useState } from 'react';
-import type { AgentEvent } from '@tutordesk/providers/types';
-import { BEAMER_THEMES, type AppSettings, type BeamerTheme, type CompileOutcome, type CompileSampleRequest, type TestRunResult } from '../../../shared/ipc';
+import { Button, Field, KeyValue, Panel, Select, StatusMark, TextInput } from '@tutordesk/ui';
+import { useEffect, useState } from 'react';
+import type { ModelTier } from '@tutordesk/providers/types';
+import { API_GATEWAYS, BEAMER_THEMES, type AppSettings, type ApiGateway, type BeamerTheme, type CompileOutcome, type CompileSampleRequest } from '../../../shared/ipc';
 import { useT } from '../i18n';
-import { useHealth } from '../useHealth';
+import { PdfFrame } from '../PdfFrame';
+import { useHealth, type AiHealth } from '../useHealth';
 
-type RunEvent = AgentEvent | { type: 'finished'; result: TestRunResult };
+const GATEWAY_LABEL: Record<ApiGateway, string> = { openrouter: 'OpenRouter', anthropic: 'Anthropic', openai: 'OpenAI', 'openai-compatible': 'OpenAI-compatible endpoint' };
+const TIERS: ModelTier[] = ['quality', 'balanced', 'fast'];
 
-function eventLine(ev: RunEvent): string | null {
-  switch (ev.type) {
-    case 'init':
-      return `session ${ev.sessionId.slice(0, 8)} · ${ev.model ?? ''}`;
-    case 'tool_call':
-      return `tool ${ev.name}`;
-    case 'usage':
-      return `tokens in ${ev.inputTokens} · out ${ev.outputTokens} · cache ${ev.cacheRead}${ev.usd !== undefined ? ` · $${ev.usd.toFixed(4)}` : ''}`;
-    case 'error':
-      return `error: ${ev.message}`;
-    case 'done':
-      return 'done';
-    case 'policy_violation':
-      return `blocked write: ${ev.path}`;
-    default:
-      return null;
+function AiStatus({ ai }: { ai: AiHealth | null }) {
+  const t = useT();
+  if (ai === null) return <StatusMark status="progress">{t('status.checking')}</StatusMark>;
+  if (ai.ok) {
+    return (
+      <StatusMark status="done">
+        {t('status.ready')}
+        {ai.authMethod ? ` · ${ai.authMethod}` : ''}
+        {ai.version ? ` · ${ai.version}` : ''}
+      </StatusMark>
+    );
   }
+  const detail = ai.backend === 'claude-cli' ? (ai.installed ? t('claude.loginHint') : t('claude.installHint')) : ai.detail;
+  return (
+    <div>
+      <StatusMark status="error">{ai.backend === 'claude-cli' ? 'Claude Code' : 'API'}</StatusMark>
+      {detail && (
+        <p data-testid="ai-detail" className="mt-1 text-sm text-text-2">
+          {detail}
+        </p>
+      )}
+    </div>
+  );
 }
 
-function AiConnection({ claude, onRecheck }: { claude: ReturnType<typeof useHealth>['claude']; onRecheck: () => void }) {
+function AiConnection({ settings, update, ai, recheck }: { settings: AppSettings; update: (p: Partial<AppSettings>) => Promise<void>; ai: AiHealth | null; recheck: () => void }) {
   const t = useT();
-  const [runId, setRunId] = useState<string | null>(null);
-  const [log, setLog] = useState<string[]>([]);
-  const [text, setText] = useState('');
-  const [result, setResult] = useState<TestRunResult | null>(null);
-  const runRef = useRef<string | null>(null);
+  const [hasKey, setHasKey] = useState<boolean | null>(null);
+  const [key, setKey] = useState('');
+  const [models, setModels] = useState(settings.api.models);
+  const [baseURL, setBaseURL] = useState(settings.api.baseURL ?? '');
 
-  useEffect(
-    () =>
-      window.tutordesk.agent.onEvent((id, ev) => {
-        if (id !== runRef.current) return;
-        if (ev.type === 'text_delta') setText((s) => s + ev.text);
-        if (ev.type === 'finished') {
-          setResult(ev.result);
-          setRunId(null);
-          runRef.current = null;
-          return;
-        }
-        const line = eventLine(ev);
-        if (line) setLog((l) => [...l, line]);
-      }),
-    [],
-  );
+  useEffect(() => {
+    void window.tutordesk.settings.hasApiKey().then(setHasKey);
+  }, [settings.api.gateway]);
+  useEffect(() => setModels(settings.api.models), [settings.api.models]);
 
-  const start = async () => {
-    setLog([]);
-    setText('');
-    setResult(null);
-    const id = await window.tutordesk.agent.testRun();
-    runRef.current = id;
-    setRunId(id);
+  const setGateway = async (gateway: ApiGateway) => {
+    const defaults = await window.tutordesk.settings.defaultModels(gateway);
+    await update({ api: { ...settings.api, gateway, models: defaults } });
+    recheck();
+  };
+
+  const saveKey = async () => {
+    await window.tutordesk.settings.setApiKey(key);
+    setKey('');
+    setHasKey(await window.tutordesk.settings.hasApiKey());
+    recheck();
+  };
+
+  const saveModels = async () => {
+    await update({ api: { ...settings.api, models, baseURL: baseURL || undefined } });
+    recheck();
   };
 
   return (
     <Panel
-      title={t('settings.ai')}
+      title={t('ai.title')}
       actions={
-        <Button variant="ghost" className="h-7" onClick={onRecheck}>
-          {t('settings.recheck')}
+        <Button data-testid="ai-check" variant="ghost" className="h-7" onClick={recheck}>
+          {t('ai.check')}
         </Button>
       }
     >
-      <p className="mb-3 text-sm text-text-2">{t('settings.ai.desc')}</p>
-      <div className="mb-3">
-        <StatusMark status={claude === null ? 'progress' : claude.ok ? 'done' : 'error'}>
-          Claude Code{claude?.version ? ` ${claude.version}` : ''} ·{' '}
-          {claude === null ? t('status.checking') : claude.ok ? `${t('status.ready')} (${claude.authMethod ?? 'signed in'})` : claude.installed ? t('status.signedOut') : t('status.notInstalled')}
-        </StatusMark>
-        {claude && !claude.ok && <p className="mt-1 text-sm text-text-2">{claude.installed ? t('claude.loginHint') : t('claude.installHint')}</p>}
-        {claude !== null && <span data-testid="claude-checked" />}
-      </div>
-      <div className="flex gap-2">
-        <Button variant="primary" disabled={!claude?.ok || runId !== null} onClick={start}>
-          {t('settings.ai.test')}
-        </Button>
-        {runId && (
-          <Button variant="ghost" onClick={() => void window.tutordesk.agent.cancel(runId)}>
-            {t('settings.ai.cancel')}
-          </Button>
-        )}
-      </div>
-      {(log.length > 0 || text || result) && (
-        <div className="mt-3 rounded-sm border border-border bg-surface-2 p-3 font-mono text-xs leading-relaxed text-text-2">
-          {log.map((l, i) => (
-            <div key={i}>{l}</div>
+      <div className="flex flex-col gap-4">
+        <div role="radiogroup" className="flex flex-col gap-1.5 text-sm">
+          {(['api', 'claude-cli'] as const).map((b) => (
+            <label key={b} className="flex items-center gap-2">
+              <input
+                type="radio"
+                name="backend"
+                data-testid={`backend-${b}`}
+                checked={settings.aiBackend === b}
+                onChange={async () => {
+                  await update({ aiBackend: b });
+                  recheck();
+                }}
+              />
+              {t(b === 'api' ? 'ai.backend.api' : 'ai.backend.cli')}
+            </label>
           ))}
-          {result && (
-            <pre className={`mt-2 whitespace-pre-wrap ${result.ok ? 'text-text' : 'text-danger'}`}>
-              {result.ok ? JSON.stringify(result.value, null, 2) : `${result.error}${result.issues ? `\n${result.issues.join('\n')}` : ''}`}
-            </pre>
-          )}
         </div>
-      )}
+
+        {settings.aiBackend === 'api' && (
+          <>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label={t('ai.gateway')}>
+                <Select data-testid="ai-gateway" value={settings.api.gateway} onChange={(e) => void setGateway(e.target.value as ApiGateway)}>
+                  {API_GATEWAYS.map((g) => (
+                    <option key={g} value={g}>
+                      {GATEWAY_LABEL[g]}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              {settings.api.gateway === 'openai-compatible' && (
+                <Field label={t('ai.baseUrl')}>
+                  <TextInput value={baseURL} placeholder="https://…/v1" onChange={(e) => setBaseURL(e.target.value)} onBlur={saveModels} />
+                </Field>
+              )}
+            </div>
+            <Field label={t('ai.key')} hint={hasKey === null ? undefined : hasKey ? t('ai.keySaved') : t('ai.keyMissing')}>
+              <div className="flex gap-2">
+                <TextInput data-testid="ai-key" type="password" autoComplete="off" className="flex-1" value={key} placeholder={hasKey ? '••••••••' : 'sk-…'} onChange={(e) => setKey(e.target.value)} />
+                <Button data-testid="ai-save-key" disabled={!key.trim()} onClick={saveKey}>
+                  {t('ai.saveKey')}
+                </Button>
+              </div>
+            </Field>
+            <div className="flex flex-col gap-2">
+              <span className="text-sm font-medium text-text-2">{t('ai.models')}</span>
+              {TIERS.map((tier) => (
+                <div key={tier} className="grid grid-cols-[1fr_1.4fr] items-center gap-3">
+                  <span className="text-sm text-text-2">{t(`ai.tier.${tier}`)}</span>
+                  <TextInput className="font-mono text-xs" value={models[tier]} onChange={(e) => setModels({ ...models, [tier]: e.target.value })} onBlur={saveModels} />
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+        <AiStatus ai={ai} />
+      </div>
     </Panel>
   );
 }
@@ -110,18 +141,11 @@ function Typesetting({ tex, theme, onTheme, onRecheck }: { tex: ReturnType<typeo
   const [mode, setMode] = useState<CompileSampleRequest['mode']>('student');
   const [busy, setBusy] = useState(false);
   const [out, setOut] = useState<CompileOutcome | null>(null);
-  const [url, setUrl] = useState<string | null>(null);
-
-  useEffect(() => () => {
-    if (url) URL.revokeObjectURL(url);
-  }, [url]);
 
   const compile = async () => {
     setBusy(true);
     try {
-      const r = await window.tutordesk.tex.compileSample({ doc, mode, theme });
-      setOut(r);
-      if (r.pdf) setUrl(URL.createObjectURL(new Blob([r.pdf as Uint8Array<ArrayBuffer>], { type: 'application/pdf' })));
+      setOut(await window.tutordesk.tex.compileSample({ doc, mode, theme }));
     } finally {
       setBusy(false);
     }
@@ -141,7 +165,11 @@ function Typesetting({ tex, theme, onTheme, onRecheck }: { tex: ReturnType<typeo
         <StatusMark status={tex === null ? 'progress' : tex.found && !tex.missingFiles.length ? 'done' : 'error'}>
           {tex === null ? t('status.checking') : tex.found ? `${tex.version} · ${tex.hasLatexmk ? 'latexmk' : 'xelatex'}` : t('status.notInstalled')}
         </StatusMark>
-        {tex?.missingFiles.length ? <p className="mt-1 text-sm text-danger">{t('status.missing')}: {tex.missingFiles.join(', ')}</p> : null}
+        {tex?.missingFiles.length ? (
+          <p className="mt-1 text-sm text-danger">
+            {t('status.missing')}: {tex.missingFiles.join(', ')}
+          </p>
+        ) : null}
       </div>
       <div className="mb-3 grid grid-cols-3 gap-3">
         <Field label={t('settings.doc')}>
@@ -182,24 +210,49 @@ function Typesetting({ tex, theme, onTheme, onRecheck }: { tex: ReturnType<typeo
         <div className="mb-3 text-sm">
           <StatusMark status={out.ok ? 'done' : 'error'}>
             <span data-testid="compile-result" data-ok={out.ok} />
-            {out.ok ? 'PDF' : 'Failed'} · {(out.durationMs / 1000).toFixed(1)} s · {out.engine}
+            {out.ok ? 'PDF' : 'Failed'} · {(out.durationMs / 1000).toFixed(1)} s{out.engine ? ` · ${out.engine}` : ''}
           </StatusMark>
-          {out.errors.filter((e) => e.severity === 'error').map((e, i) => (
-            <p key={i} className="mt-1 font-mono text-xs text-danger">
-              {e.line ? `l.${e.line} ` : ''}
-              {e.message}
-            </p>
-          ))}
+          {out.errors
+            .filter((e) => e.severity === 'error')
+            .map((e, i) => (
+              <p key={i} className="mt-1 font-mono text-xs text-danger">
+                {e.line ? `l.${e.line} ` : ''}
+                {e.message}
+              </p>
+            ))}
         </div>
       )}
-      {url && out?.ok && <iframe title="PDF preview" src={url} className="h-[640px] w-full rounded-sm border border-border bg-white" />}
+      {out?.ok && out.pdf && <PdfFrame pdf={out.pdf} />}
+    </Panel>
+  );
+}
+
+function Studio({ settings, update }: { settings: AppSettings; update: (p: Partial<AppSettings>) => Promise<void> }) {
+  const t = useT();
+  const [name, setName] = useState(settings.studio.name);
+  const [mono, setMono] = useState(settings.studio.monogram);
+  const [tutor, setTutor] = useState(settings.tutorName);
+  const save = () => void update({ studio: { name: name.trim() || settings.studio.name, monogram: mono.trim().slice(0, 3) }, tutorName: tutor.trim() });
+  return (
+    <Panel title={t('studio.title')}>
+      <div className="grid grid-cols-[2fr_1fr_2fr] gap-3">
+        <Field label={t('studio.name')}>
+          <TextInput value={name} onChange={(e) => setName(e.target.value)} onBlur={save} />
+        </Field>
+        <Field label={t('studio.monogram')}>
+          <TextInput value={mono} maxLength={3} onChange={(e) => setMono(e.target.value)} onBlur={save} />
+        </Field>
+        <Field label={t('studio.tutor')}>
+          <TextInput value={tutor} onChange={(e) => setTutor(e.target.value)} onBlur={save} />
+        </Field>
+      </div>
     </Panel>
   );
 }
 
 export function SettingsPage({ settings, onSettings }: { settings: AppSettings; onSettings: (s: AppSettings) => void }) {
   const t = useT();
-  const { claude, tex, refresh } = useHealth();
+  const { ai, tex, refresh } = useHealth();
   const update = async (patch: Partial<AppSettings>) => onSettings(await window.tutordesk.settings.update(patch));
 
   return (
@@ -237,7 +290,9 @@ export function SettingsPage({ settings, onSettings }: { settings: AppSettings; 
           </div>
         </div>
       </Panel>
-      <AiConnection claude={claude} onRecheck={() => refresh(true)} />
+      <AiConnection settings={settings} update={update} ai={ai} recheck={() => refresh(true)} />
+      {ai !== null && <span data-testid="claude-checked" hidden />}
+      <Studio settings={settings} update={update} />
       <Typesetting tex={tex} theme={settings.beamerTheme} onTheme={(th) => void update({ beamerTheme: th })} onRecheck={() => refresh(true)} />
     </div>
   );

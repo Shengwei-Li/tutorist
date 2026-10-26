@@ -737,6 +737,12 @@ workspace-template/   默认的 .claude/skills、agents、templates（包含考�
 
 ---
 
+### 实施进度（2026-10-26）
+
+- **M0 已完成**：monorepo、设计系统、Electron 外壳、工作区服务、ClaudeCliProvider、本机 TeX 编译。
+- **M1 已完成（真实模型待验证）**：ApiProvider（OpenRouter / Anthropic / OpenAI / 兼容接口，key 加密存储）；产出物 JSON schema 与 LaTeX 渲染器（讲义、练习卷、底稿、Beamer）；课包流水线（计划卡 → 老师确认 → 生成 → 确定性检查 → 实编译 → rubric 评审 → 最多 2 轮修订）；写作批改（照片识别 → 老师确认 → 四项区间 + 定位批注 → 老师终评 → 错因库）；工作台与批改界面；评测集 `pnpm eval`（P01/P02/P03/P16 + 范文批改）。
+- **尚未完成**：用真实模型跑评测并调提示词；PDF 框选修改（目前是整份文档按指令修改）；PDF 原件导入解析（目前只支持文本材料）；Tectonic 分发。
+
 ## 13. 风险与未决问题
 
 | 风险或问题 | 应对 |

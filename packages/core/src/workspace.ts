@@ -1,4 +1,5 @@
-import { cp, mkdir, readdir, stat, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises';
+import type { z } from 'zod';
 import path from 'node:path';
 import { appendJsonl, readJson, readJsonl, writeFileAtomic, writeJson, type Parsed } from './fsio.js';
 import { StudentGit } from './git.js';
@@ -11,6 +12,7 @@ import {
   NewStudentInput,
   SCORE_SCALES,
   StudentProfile,
+  SubmissionMeta,
   WorkspaceManifest,
 } from './schemas.js';
 
@@ -224,6 +226,112 @@ export class WorkspaceService {
 
   async lessonDir(id: string, lessonId: string): Promise<string> {
     return resolveInside(await this.studentDir(id), path.join('lessons', lessonId));
+  }
+
+  async readLesson(id: string, lessonId: string): Promise<LessonMeta> {
+    const r = await readJson(path.join(await this.lessonDir(id, lessonId), 'lesson.json'), LessonMeta);
+    if (!r.ok) throw new Error(`lesson.json is invalid: ${r.issues.join('; ')}`);
+    return r.value;
+  }
+
+  async updateLesson(id: string, lessonId: string, change: (l: LessonMeta) => LessonMeta, message?: string): Promise<LessonMeta> {
+    const dir = await this.lessonDir(id, lessonId);
+    const next = LessonMeta.parse(change(await this.readLesson(id, lessonId)));
+    await writeJson(path.join(dir, 'lesson.json'), next);
+    if (message) await this.commit(id, message);
+    return next;
+  }
+
+  /** Read a JSON file inside a lesson folder, validated; null when it does not exist yet. */
+  async readLessonJson<S extends z.ZodType>(id: string, lessonId: string, file: string, schema: S): Promise<z.infer<S> | null> {
+    const abs = await resolveInside(await this.lessonDir(id, lessonId), file);
+    if (!(await exists(abs))) return null;
+    const r = await readJson(abs, schema);
+    if (!r.ok) throw new Error(`${file} is invalid: ${r.issues.join('; ')}`);
+    return r.value;
+  }
+
+  async writeLessonFile(id: string, lessonId: string, file: string, content: string | Buffer | object): Promise<string> {
+    const abs = await resolveInside(await this.lessonDir(id, lessonId), file);
+    if (Buffer.isBuffer(content)) {
+      await mkdir(path.dirname(abs), { recursive: true });
+      await writeFile(abs, content);
+    } else if (typeof content === 'string') await writeFileAtomic(abs, content);
+    else await writeJson(abs, content);
+    return abs;
+  }
+
+  async appendRunLog(id: string, lessonId: string, entry: object): Promise<void> {
+    await appendJsonl(path.join(await this.lessonDir(id, lessonId), 'run-log.jsonl'), { at: nowIso(), ...entry });
+  }
+
+  async commit(id: string, message: string): Promise<string | null> {
+    return new StudentGit(await this.studentDir(id)).commitAll(message);
+  }
+
+  /* ── submissions (essays) ── */
+
+  async createSubmission(
+    id: string,
+    input: { kind: SubmissionMeta['kind']; prompt?: string; text?: string; image?: { name: string; data: Buffer }; date: string },
+  ): Promise<SubmissionMeta> {
+    const dir = await this.studentDir(id);
+    const base = `${input.date}-${input.kind === 'writing-task1' ? 'task1' : 'task2'}`;
+    let subId = base;
+    for (let n = 2; await exists(path.join(dir, 'submissions', subId)); n++) subId = `${base}-${n}`;
+    const subDir = path.join(dir, 'submissions', subId);
+    await mkdir(subDir, { recursive: true });
+    let original: string | undefined;
+    if (input.image) {
+      original = `original${path.extname(input.image.name).toLowerCase() || '.png'}`;
+      await writeFile(path.join(subDir, original), input.image.data);
+    }
+    const meta = SubmissionMeta.parse({
+      schemaVersion: 1,
+      id: subId,
+      kind: input.kind,
+      prompt: input.prompt ?? '',
+      source: input.image ? 'image' : 'text',
+      original,
+      textConfirmed: !input.image,
+      createdAt: nowIso(),
+    });
+    await writeJson(path.join(subDir, 'meta.json'), meta);
+    await writeFileAtomic(path.join(subDir, 'text.md'), input.text ?? '');
+    await this.commit(id, `Add submission ${subId}`);
+    return meta;
+  }
+
+  async submissionDir(id: string, subId: string): Promise<string> {
+    return resolveInside(await this.studentDir(id), path.join('submissions', subId));
+  }
+
+  async listSubmissions(id: string): Promise<SubmissionMeta[]> {
+    const root = path.join(await this.studentDir(id), 'submissions');
+    const names = await readdir(root).catch(() => [] as string[]);
+    const out: SubmissionMeta[] = [];
+    for (const n of names.sort().reverse()) {
+      const r = await readJson(path.join(root, n, 'meta.json'), SubmissionMeta);
+      if (r.ok) out.push(r.value);
+    }
+    return out;
+  }
+
+  async readSubmission(id: string, subId: string): Promise<{ meta: SubmissionMeta; text: string; dir: string }> {
+    const dir = await this.submissionDir(id, subId);
+    const r = await readJson(path.join(dir, 'meta.json'), SubmissionMeta);
+    if (!r.ok) throw new Error(`meta.json is invalid: ${r.issues.join('; ')}`);
+    const text = await readFile(path.join(dir, 'text.md'), 'utf8').catch(() => '');
+    return { meta: r.value, text, dir };
+  }
+
+  async updateSubmission(id: string, subId: string, change: { meta?: (m: SubmissionMeta) => SubmissionMeta; text?: string }, message?: string): Promise<SubmissionMeta> {
+    const { meta, dir } = await this.readSubmission(id, subId);
+    const next = SubmissionMeta.parse(change.meta ? change.meta(meta) : meta);
+    await writeJson(path.join(dir, 'meta.json'), next);
+    if (change.text !== undefined) await writeFileAtomic(path.join(dir, 'text.md'), change.text);
+    if (message) await this.commit(id, message);
+    return next;
   }
 
   async history(id: string, limit?: number) {

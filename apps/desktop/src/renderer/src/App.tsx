@@ -3,8 +3,10 @@ import { BookOpen, CalendarDays, CheckSquare, LayoutTemplate, Settings as Settin
 import { useCallback, useEffect, useState, type ComponentType } from 'react';
 import type { AppSettings } from '../../shared/ipc';
 import { LangProvider, useT } from './i18n';
+import { LessonPage } from './pages/Lesson';
 import { SettingsPage } from './pages/Settings';
 import { StudentsPage } from './pages/Students';
+import { SubmissionPage } from './pages/Submission';
 import { TodayPage } from './pages/Today';
 
 export type Route = 'today' | 'students' | 'schedule' | 'review' | 'library' | 'templates' | 'settings';
@@ -38,9 +40,17 @@ function Shell({ settings, onSettings }: { settings: AppSettings; onSettings: (s
   const t = useT();
   const [route, setRoute] = useState<Route>('today');
   const [studentId, setStudentId] = useState<string | null>(null);
+  const [detail, setDetail] = useState<{ kind: 'lesson' | 'submission'; studentId: string; id: string; studentName: string } | null>(null);
   const openStudent = useCallback((id: string | null) => {
     setStudentId(id);
+    setDetail(null);
     setRoute('students');
+  }, []);
+  const openDetail = useCallback(async (kind: 'lesson' | 'submission', sid: string, id: string) => {
+    const d = await window.tutordesk.students.get(sid);
+    setStudentId(sid);
+    setRoute('students');
+    setDetail({ kind, studentId: sid, id, studentName: d.profile.name });
   }, []);
 
   return (
@@ -49,16 +59,48 @@ function Shell({ settings, onSettings }: { settings: AppSettings; onSettings: (s
         <div className="mb-4 px-2.5 text-sm font-semibold tracking-tight text-text">TutorDesk</div>
         <nav className="flex flex-col gap-0.5">
           {NAV.map((n) => (
-            <NavItem key={n.id} id={n.id} active={route === n.id} onClick={() => setRoute(n.id)} icon={n.icon} label={t(n.key)} />
+            <NavItem
+              key={n.id}
+              id={n.id}
+              active={route === n.id}
+              onClick={() => {
+                setDetail(null);
+                setRoute(n.id);
+              }}
+              icon={n.icon}
+              label={t(n.key)}
+            />
           ))}
         </nav>
         <div className="mt-auto">
-          <NavItem id="settings" active={route === 'settings'} onClick={() => setRoute('settings')} icon={SettingsIcon} label={t('nav.settings')} />
+          <NavItem
+            id="settings"
+            active={route === 'settings'}
+            onClick={() => {
+              setDetail(null);
+              setRoute('settings');
+            }}
+            icon={SettingsIcon}
+            label={t('nav.settings')}
+          />
         </div>
       </aside>
-      <main className="min-w-0 flex-1 overflow-auto">
+      <main className={clsx('min-w-0 flex-1', detail ? 'overflow-hidden' : 'overflow-auto')}>
         {route === 'today' && <TodayPage onOpenStudent={openStudent} onOpenSettings={() => setRoute('settings')} />}
-        {route === 'students' && <StudentsPage selected={studentId} onSelect={setStudentId} />}
+        {route === 'students' && detail?.kind === 'lesson' && (
+          <LessonPage key={detail.id} studentId={detail.studentId} lessonId={detail.id} studentName={detail.studentName} theme={settings.beamerTheme} onBack={() => setDetail(null)} />
+        )}
+        {route === 'students' && detail?.kind === 'submission' && (
+          <SubmissionPage key={detail.id} studentId={detail.studentId} subId={detail.id} studentName={detail.studentName} onBack={() => setDetail(null)} />
+        )}
+        {route === 'students' && !detail && (
+          <StudentsPage
+            selected={studentId}
+            onSelect={setStudentId}
+            onOpenLesson={(s, l) => void openDetail('lesson', s, l)}
+            onOpenSubmission={(s, x) => void openDetail('submission', s, x)}
+          />
+        )}
         {route === 'settings' && <SettingsPage settings={settings} onSettings={onSettings} />}
         {['schedule', 'review', 'library', 'templates'].includes(route) && (
           <div className="mx-auto max-w-3xl px-8 py-8">

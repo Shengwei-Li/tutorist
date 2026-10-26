@@ -11,7 +11,12 @@
     "typecheck": "tsc --noEmit -p ."
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^4.0.88",
+    "@ai-sdk/openai": "^4.0.102",
+    "@ai-sdk/openai-compatible": "^3.0.78",
+    "@openrouter/ai-sdk-provider": "^3.1.0",
     "@tutordesk/core": "workspace:*",
+    "ai": "^7.0.153",
     "zod": "^4.6.7"
   }
 }

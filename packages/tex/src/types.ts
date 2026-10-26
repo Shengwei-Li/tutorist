@@ -71,6 +71,7 @@ export const REQUIRED_TEX_FILES = [
   'tikz.sty',
   'ulem.sty',
   'iftex.sty',
+  'hyperref.sty',
   'beamer.cls',
   'xeCJK.sty',
 ] as const;

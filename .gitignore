@@ -20,3 +20,4 @@ prototypes/**/build/
 
 # local dev workspaces
 .tutordesk-dev/
+eval-results/

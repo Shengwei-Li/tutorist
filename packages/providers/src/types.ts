@@ -11,6 +11,15 @@ export interface PermissionPolicy {
   allowNetwork: boolean;
 }
 
+/** Provider-neutral model choice; each provider maps tiers to concrete models (SPEC §7.7). */
+export type ModelTier = 'quality' | 'balanced' | 'fast';
+
+export interface Attachment {
+  /** Absolute path inside workspaceRoot. */
+  path: string;
+  mediaType: string;
+}
+
 export interface AgentRunSpec {
   taskType: TaskType;
   /** Student folder: the agent's cwd and sandbox root. */
@@ -21,7 +30,10 @@ export interface AgentRunSpec {
   tools?: string[];
   /** JSON Schema the final answer must satisfy. */
   outputSchema?: Record<string, unknown>;
-  model?: string;
+  /** A tier, or a provider-specific model id. */
+  model?: ModelTier | (string & {});
+  /** Images or PDFs the model must see (e.g. a photographed essay). */
+  attachments?: Attachment[];
   effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
   resumeSessionId?: string;
   budget?: { maxUsd?: number; maxTurns?: number };

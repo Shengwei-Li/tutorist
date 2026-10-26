@@ -11,7 +11,7 @@ function todayIso(): string {
 
 export function TodayPage({ onOpenStudent, onOpenSettings }: { onOpenStudent: (id: string | null) => void; onOpenSettings: () => void }) {
   const t = useT();
-  const { claude, tex } = useHealth();
+  const { ai, tex } = useHealth();
   const [rows, setRows] = useState<{ profile: StudentProfile; lesson: LessonMeta }[] | null>(null);
 
   useEffect(() => {
@@ -28,7 +28,7 @@ export function TodayPage({ onOpenStudent, onOpenSettings }: { onOpenStudent: (i
     })();
   }, []);
 
-  const ready = claude?.ok && tex?.found && tex.missingFiles.length === 0;
+  const ready = ai?.ok && tex?.found && tex.missingFiles.length === 0;
   const dateLabel = new Date().toLocaleDateString(document.documentElement.lang, { weekday: 'long', month: 'long', day: 'numeric' });
 
   return (
@@ -61,13 +61,13 @@ export function TodayPage({ onOpenStudent, onOpenSettings }: { onOpenStudent: (i
 
         <Panel title={ready ? t('today.ready') : t('today.notReady')}>
           <div className="flex flex-col gap-2">
-            <StatusMark status={claude === null ? 'progress' : claude.ok ? 'done' : 'error'}>
-              Claude Code · {claude === null ? t('status.checking') : claude.ok ? t('status.ready') : claude.installed ? t('status.signedOut') : t('status.notInstalled')}
+            <StatusMark status={ai === null ? 'progress' : ai.ok ? 'done' : 'error'}>
+              {ai?.backend === 'claude-cli' ? 'Claude Code' : 'AI'} · {ai === null ? t('status.checking') : ai.ok ? t('status.ready') : ai.backend === 'claude-cli' ? (ai.installed ? t('status.signedOut') : t('status.notInstalled')) : (ai.detail ?? t('status.notInstalled'))}
             </StatusMark>
             <StatusMark status={tex === null ? 'progress' : tex.found && !tex.missingFiles.length ? 'done' : 'error'}>
               LaTeX · {tex === null ? t('status.checking') : tex.found ? (tex.missingFiles.length ? t('status.missing') : tex.version) : t('status.notInstalled')}
             </StatusMark>
-            {!ready && claude !== null && tex !== null && (
+            {!ready && ai !== null && tex !== null && (
               <Button variant="ghost" className="mt-1 self-start px-0" onClick={onOpenSettings}>
                 {t('nav.settings')} →
               </Button>

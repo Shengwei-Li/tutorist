@@ -2,7 +2,7 @@ import clsx from 'clsx';
 import { Button, EmptyState, Field, KeyValue, Panel, Select, StatusMark, TextInput } from '@tutordesk/ui';
 import { FolderOpen, Plus } from 'lucide-react';
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
-import type { ExamId } from '@tutordesk/core/schemas';
+import type { ExamId, SubmissionMeta } from '@tutordesk/core/schemas';
 import type { StudentDetail, StudentSummary } from '../../../shared/ipc';
 import { useT } from '../i18n';
 
@@ -81,7 +81,89 @@ function NewStudentForm({ onDone, onCancel }: { onDone: (id: string) => void; on
   );
 }
 
-function StudentView({ id }: { id: string }) {
+function WritingPanel({ studentId, submissions, onOpen }: { studentId: string; submissions: SubmissionMeta[]; onOpen: (subId: string) => void }) {
+  const t = useT();
+  const [adding, setAdding] = useState(false);
+  const [kind, setKind] = useState<SubmissionMeta['kind']>('writing-task2');
+  const [prompt, setPrompt] = useState('');
+  const [text, setText] = useState('');
+
+  const save = async () => {
+    const s = await window.tutordesk.submissions.createText(studentId, { kind, prompt: prompt.trim(), text });
+    setAdding(false);
+    setPrompt('');
+    setText('');
+    onOpen(s.id);
+  };
+  const fromPhoto = async () => {
+    const s = await window.tutordesk.submissions.createFromImage(studentId, kind);
+    if (s) onOpen(s.id);
+  };
+
+  return (
+    <Panel
+      title={t('writing.title')}
+      actions={
+        <div className="flex items-center gap-2">
+          <Select className="h-7" value={kind} onChange={(e) => setKind(e.target.value as SubmissionMeta['kind'])}>
+            <option value="writing-task2">Task 2</option>
+            <option value="writing-task1">Task 1</option>
+          </Select>
+          <Button data-testid="essay-paste" className="h-7" onClick={() => setAdding(true)}>
+            <Plus size={14} strokeWidth={1.5} /> {t('writing.paste')}
+          </Button>
+          <Button className="h-7" onClick={fromPhoto}>
+            {t('writing.photo')}
+          </Button>
+        </div>
+      }
+    >
+      {adding && (
+        <div className="mb-4 flex flex-col gap-2">
+          <TextInput data-testid="essay-prompt" placeholder={t('writing.prompt')} value={prompt} onChange={(e) => setPrompt(e.target.value)} />
+          <textarea data-testid="essay-new-text" rows={8} placeholder={t('writing.text')} className="rounded-sm border border-border-strong bg-surface p-2 font-serif text-sm focus:border-accent focus:outline-none" value={text} onChange={(e) => setText(e.target.value)} />
+          <div className="flex gap-2">
+            <Button data-testid="essay-save" variant="primary" disabled={text.trim().split(/\s+/).length < 30} onClick={save}>
+              {t('common.save')}
+            </Button>
+            <Button variant="ghost" onClick={() => setAdding(false)}>
+              {t('students.cancel')}
+            </Button>
+          </div>
+        </div>
+      )}
+      {submissions.length === 0 && !adding ? (
+        <p className="text-sm text-text-2">{t('writing.none')}</p>
+      ) : (
+        <ul className="divide-y divide-border">
+          {submissions.map((s) => (
+            <li key={s.id}>
+              <button data-testid={`open-sub-${s.id}`} className="flex w-full items-center justify-between py-2 text-left text-sm hover:text-accent" onClick={() => onOpen(s.id)}>
+                <span className="min-w-0 truncate">
+                  <span className="font-medium">{s.kind === 'writing-task1' ? 'Task 1' : 'Task 2'}</span>
+                  <span className="text-text-3"> · {s.id.slice(0, 10)}</span>
+                  {s.prompt && <span className="text-text-2"> · {s.prompt}</span>}
+                </span>
+                <span className="flex shrink-0 items-center gap-3">
+                  {Object.keys(s.finalBands).length > 0 && (
+                    <span className="text-xs text-text-2 tabular-nums">
+                      {Object.entries(s.finalBands)
+                        .map(([k, v]) => `${k} ${v}`)
+                        .join(' · ')}
+                    </span>
+                  )}
+                  <StatusMark status={s.status === 'finalised' ? 'done' : s.status === 'reviewed' ? 'progress' : 'pending'}>{s.status === 'finalised' ? t('writing.finalised') : t(`writing.status.${s.status}` as 'writing.status.new')}</StatusMark>
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Panel>
+  );
+}
+
+function StudentView({ id, onOpenLesson, onOpenSubmission }: { id: string; onOpenLesson: (lessonId: string) => void; onOpenSubmission: (subId: string) => void }) {
   const t = useT();
   const [d, setD] = useState<StudentDetail | null>(null);
   const [topic, setTopic] = useState('');
@@ -140,18 +222,22 @@ function StudentView({ id }: { id: string }) {
         ) : (
           <ul className="divide-y divide-border">
             {d.lessons.map((l) => (
-              <li key={l.id} className="flex items-center justify-between py-2 text-sm">
-                <span>
-                  <span className="font-medium tabular-nums">L{String(l.number).padStart(2, '0')}</span>
-                  <span className="text-text-3"> · {l.date} · {l.minutes} min</span>
-                  {l.topic && <span> · {l.topic}</span>}
-                </span>
-                <StatusMark status={l.status === 'planned' ? 'pending' : 'done'}>{t(`lesson.${l.status}`)}</StatusMark>
+              <li key={l.id}>
+                <button data-testid={`open-lesson-${l.number}`} className="flex w-full items-center justify-between py-2 text-left text-sm hover:text-accent" onClick={() => onOpenLesson(l.id)}>
+                  <span className="min-w-0 truncate">
+                    <span className="font-medium tabular-nums">L{String(l.number).padStart(2, '0')}</span>
+                    <span className="text-text-3"> · {l.date} · {l.minutes} min</span>
+                    {l.topic && <span> · {l.topic}</span>}
+                  </span>
+                  <StatusMark status={l.planConfirmed ? 'done' : l.status === 'planned' ? 'pending' : 'progress'}>{t(`lesson.${l.status}`)}</StatusMark>
+                </button>
               </li>
             ))}
           </ul>
         )}
       </Panel>
+
+      <WritingPanel studentId={id} submissions={d.submissions} onOpen={onOpenSubmission} />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Panel title={t('student.errors')}>
@@ -185,7 +271,7 @@ function StudentView({ id }: { id: string }) {
   );
 }
 
-export function StudentsPage({ selected, onSelect }: { selected: string | null; onSelect: (id: string | null) => void }) {
+export function StudentsPage({ selected, onSelect, onOpenLesson, onOpenSubmission }: { selected: string | null; onSelect: (id: string | null) => void; onOpenLesson: (studentId: string, lessonId: string) => void; onOpenSubmission: (studentId: string, subId: string) => void }) {
   const t = useT();
   const [list, setList] = useState<StudentSummary[] | null>(null);
   const [adding, setAdding] = useState(false);
@@ -251,7 +337,7 @@ export function StudentsPage({ selected, onSelect }: { selected: string | null; 
             />
           </div>
         ) : selected ? (
-          <StudentView key={selected} id={selected} />
+          <StudentView key={selected} id={selected} onOpenLesson={(l) => onOpenLesson(selected, l)} onOpenSubmission={(s) => onOpenSubmission(selected, s)} />
         ) : null}
       </div>
     </div>

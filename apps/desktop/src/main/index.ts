@@ -23,6 +23,8 @@ function createWindow(): BrowserWindow {
       sandbox: true,
       // Built-in PDF viewer for compiled handouts and decks.
       plugins: true,
+      // Smoke runs capture screenshots while the window may be in the background.
+      backgroundThrottling: !smokeDir,
     },
   });
   win.once('ready-to-show', () => win.show());

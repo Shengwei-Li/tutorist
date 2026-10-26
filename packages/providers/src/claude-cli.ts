@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { ClaudeEventMapper } from './claude-events.js';
 import { execText, killTree, LineSplitter, which, type ResolvedCommand } from '@tutordesk/core';
-import { DEFAULT_TOOLS, type AgentEvent, type AgentProvider, type AgentRunSpec, type HealthStatus, type ProviderCapabilities } from './types.js';
+import { DEFAULT_TOOLS, type AgentEvent, type AgentProvider, type AgentRunSpec, type HealthStatus, type ModelTier, type ProviderCapabilities } from './types.js';
 
 export interface ClaudeCliOptions {
   /** Override the executable (tests, or a user-configured path). */
@@ -14,6 +14,19 @@ export interface ClaudeCliOptions {
   /** Stream text as deltas. */
   partialMessages?: boolean;
   env?: NodeJS.ProcessEnv;
+}
+
+const CLAUDE_TIERS: Record<ModelTier, string> = { quality: 'opus', balanced: 'sonnet', fast: 'haiku' };
+
+/** Claude Code reads attachments itself with its Read tool, so we name them in the prompt. */
+function withAttachments(spec: AgentRunSpec): { prompt: string; tools: string[] } {
+  const tools = spec.tools ?? DEFAULT_TOOLS[spec.taskType];
+  if (!spec.attachments?.length) return { prompt: spec.prompt, tools };
+  const list = spec.attachments.map((a) => `- ${a.path}`).join('\n');
+  return {
+    prompt: `${spec.prompt}\n\nAttached files (open each with the Read tool before answering):\n${list}`,
+    tools: tools.includes('Read') ? tools : [...tools, 'Read'],
+  };
 }
 
 /** Variables that make a nested CLI think it runs inside another Claude Code session. */
@@ -73,7 +86,7 @@ export class ClaudeCliProvider implements AgentProvider {
   /** Build CLI arguments for a run. The prompt itself goes through stdin (no argv length limits). */
   buildArgs(spec: AgentRunSpec): string[] {
     const partial = this.opts.partialMessages ?? true;
-    const tools = spec.tools ?? DEFAULT_TOOLS[spec.taskType];
+    const { tools } = withAttachments(spec);
     const args = ['-p', '--output-format', 'stream-json', '--verbose', '--permission-prompts', 'none'];
     if (partial) args.push('--include-partial-messages');
     // Project settings only: the teacher's global ~/.claude config must not leak into lesson generation.
@@ -83,7 +96,7 @@ export class ClaudeCliProvider implements AgentProvider {
     if (tools.some((t) => t === 'Write' || t === 'Edit')) args.push('--permission-mode', 'acceptEdits');
     if (spec.systemAppend) args.push('--append-system-prompt', spec.systemAppend);
     if (spec.outputSchema) args.push('--json-schema', JSON.stringify(spec.outputSchema));
-    if (spec.model) args.push('--model', spec.model);
+    if (spec.model) args.push('--model', CLAUDE_TIERS[spec.model as ModelTier] ?? spec.model);
     if (spec.effort) args.push('--effort', spec.effort);
     if (spec.budget?.maxUsd !== undefined) args.push('--max-budget-usd', String(spec.budget.maxUsd));
     if (spec.resumeSessionId) args.push('--resume', spec.resumeSessionId);
@@ -155,7 +168,7 @@ export class ClaudeCliProvider implements AgentProvider {
 
     const onAbort = () => killTree(child);
     signal?.addEventListener('abort', onAbort, { once: true });
-    child.stdin.end(spec.prompt, 'utf8');
+    child.stdin.end(withAttachments(spec).prompt, 'utf8');
 
     try {
       for (;;) {

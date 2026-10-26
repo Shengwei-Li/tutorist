@@ -119,9 +119,33 @@ export const LessonMeta = z.object({
   minutes: z.number().int().min(15).max(240),
   topic: z.string().default(''),
   status: LessonStatus.default('planned'),
+  /** Student-relative paths of materials attached to this lesson (parsed text or images). */
+  materials: z.array(z.string()).default([]),
+  /** Free-text brief from the teacher for this lesson. */
+  brief: z.string().default(''),
+  /** The tutor approved plan.json; artifacts are only generated from an approved plan (SPEC §4.3). */
+  planConfirmed: z.boolean().default(false),
   createdAt: IsoDateTime,
 });
 export type LessonMeta = z.infer<typeof LessonMeta>;
+
+export const SubmissionMeta = z.object({
+  schemaVersion: z.literal(1),
+  id: z.string().regex(/^\d{4}-\d{2}-\d{2}-[a-z0-9-]+$/),
+  kind: z.enum(['writing-task1', 'writing-task2']),
+  /** The task prompt the student answered. */
+  prompt: z.string().default(''),
+  source: z.enum(['text', 'image']),
+  /** Original upload inside the submission folder, for image submissions. */
+  original: z.string().optional(),
+  /** Set once the teacher has confirmed the transcription (image) or pasted text. */
+  textConfirmed: z.boolean().default(false),
+  /** Teacher's final band per criterion; only these feed the trend charts. */
+  finalBands: z.record(z.string(), z.number()).default({}),
+  status: z.enum(['new', 'reviewed', 'finalised']).default('new'),
+  createdAt: IsoDateTime,
+});
+export type SubmissionMeta = z.infer<typeof SubmissionMeta>;
 
 /** One line of error-log.jsonl (appendix B.4). */
 export const ErrorInstance = z.object({

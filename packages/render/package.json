@@ -1,0 +1,19 @@
+{
+  "name": "@tutordesk/render",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "dependencies": {
+    "@tutordesk/core": "workspace:*",
+    "@tutordesk/tex": "workspace:*"
+  },
+  "devDependencies": {
+    "zod": "^4.6.7"
+  }
+}
