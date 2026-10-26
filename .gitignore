@@ -1,0 +1,22 @@
+node_modules/
+dist/
+out/
+*.tsbuildinfo
+.vite/
+coverage/
+
+# LaTeX build artifacts
+*.aux
+*.log
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+*.xdv
+*.out
+*.toc
+*.nav
+*.snm
+prototypes/**/build/
+
+# local dev workspaces
+.tutordesk-dev/

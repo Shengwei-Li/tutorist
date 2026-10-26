@@ -1,0 +1,19 @@
+{
+  "name": "tutordesk",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.11.0",
+  "scripts": {
+    "dev": "pnpm --filter @tutordesk/desktop dev",
+    "build": "pnpm --filter @tutordesk/desktop build",
+    "typecheck": "pnpm -r --parallel typecheck",
+    "test": "vitest run",
+    "smoke": "pnpm --filter @tutordesk/desktop build && cross-env TUTORDESK_SMOKE_DIR=../../.tutordesk-dev/smoke TUTORDESK_WORKSPACE=../../.tutordesk-dev/smoke/workspace pnpm --filter @tutordesk/desktop exec electron ."
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "cross-env": "^10.1.0",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
+  }
+}

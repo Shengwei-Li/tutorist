@@ -1,0 +1,139 @@
+/*
+ * TutorDesk design tokens (SPEC §8.4).
+ * One accent (Oxford ink), neutral cool greys, 1px borders instead of shadows,
+ * shadows only on floating layers. Import after `@import "tailwindcss"`.
+ */
+
+:root {
+  --bg: #fafaf9;
+  --surface: #ffffff;
+  --surface-2: #f3f4f4;
+  --border: #e4e6e7;
+  --border-strong: #cdd1d4;
+  --text: #16191d;
+  --text-2: #4b535c;
+  --text-3: #7d858e;
+  --accent: #24508f;
+  --accent-hover: #1c4277;
+  --accent-soft: #e8eef7;
+  --accent-fg: #ffffff;
+  --positive: #2f6b4f;
+  --warning: #9a6212;
+  --danger: #a63a32;
+  --anno-grammar: #b4442f;
+  --anno-lexis: #2f6fa8;
+  --anno-cohesion: #6e7f2e;
+  --anno-task: #8a5a9c;
+  --skill-l: #2f6fa8;
+  --skill-r: #3e8e7e;
+  --skill-w: #b4632f;
+  --skill-s: #7a5ba6;
+  --shadow-float: 0 1px 2px rgb(0 0 0 / 0.06), 0 8px 24px rgb(0 0 0 / 0.08);
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --bg: #111315;
+    --surface: #17191c;
+    --surface-2: #1e2125;
+    --border: #2a2e33;
+    --border-strong: #3a3f45;
+    --text: #e7e9eb;
+    --text-2: #a9b0b7;
+    --text-3: #7a828a;
+    --accent: #7fa6de;
+    --accent-hover: #97b7e6;
+    --accent-soft: #1d2a3d;
+    --accent-fg: #0f1720;
+    --positive: #6fb08f;
+    --warning: #d19a4a;
+    --danger: #e07a70;
+    --anno-grammar: #e07f6a;
+    --anno-lexis: #7fb0e0;
+    --anno-cohesion: #a9bc6a;
+    --anno-task: #b993cc;
+    --shadow-float: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 24px rgb(0 0 0 / 0.4);
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme='dark'] {
+  --bg: #111315;
+  --surface: #17191c;
+  --surface-2: #1e2125;
+  --border: #2a2e33;
+  --border-strong: #3a3f45;
+  --text: #e7e9eb;
+  --text-2: #a9b0b7;
+  --text-3: #7a828a;
+  --accent: #7fa6de;
+  --accent-hover: #97b7e6;
+  --accent-soft: #1d2a3d;
+  --accent-fg: #0f1720;
+  --positive: #6fb08f;
+  --warning: #d19a4a;
+  --danger: #e07a70;
+  --anno-grammar: #e07f6a;
+  --anno-lexis: #7fb0e0;
+  --anno-cohesion: #a9bc6a;
+  --anno-task: #b993cc;
+  --shadow-float: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 24px rgb(0 0 0 / 0.4);
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-text: var(--text);
+  --color-text-2: var(--text-2);
+  --color-text-3: var(--text-3);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-fg: var(--accent-fg);
+  --color-positive: var(--positive);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --shadow-float: var(--shadow-float);
+
+  --font-sans: 'Inter', 'PingFang SC', 'Source Han Sans SC', 'Microsoft YaHei UI', system-ui, sans-serif;
+  --font-serif: 'Source Serif 4', 'Noto Serif SC', 'Songti SC', Georgia, serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Mono', Consolas, monospace;
+
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-base: 14px;
+  --text-md: 16px;
+  --text-lg: 20px;
+  --text-xl: 24px;
+  --text-2xl: 32px;
+
+  --ease-out: cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+html,
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-feature-settings: 'tnum' 1, 'cv11' 1;
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+::selection {
+  background: var(--accent-soft);
+}

@@ -1,0 +1,367 @@
+%% tutorlesson.sty -- semantic layer for IELTS / PTE tutor decks
+%%
+%% Content files use ONLY the public macros documented in ../MACROS.md.
+%% Themes (beamertheme<name>.sty) decide how everything looks by
+%%   1. \definecolor-ing the tutor* palette BEFORE loading this package,
+%%   2. \renewcommand-ing the \tutor...Style hooks / templates AFTER it,
+%%   3. overriding the TikZ / tcolorbox styles named "tutor ...".
+%% Engine: XeLaTeX (Tectonic-compatible). No LuaTeX-only code.
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{tutorlesson}[2026/10/26 v0.4 semantic lesson macros]
+
+\RequirePackage{fontspec}
+\RequirePackage{tikz}
+\usetikzlibrary{arrows.meta,calc}
+\RequirePackage[most]{tcolorbox}
+\RequirePackage[normalem]{ulem}
+
+%% ------------------------------------------------------------------
+%% Palette (themes define these first; these are fallbacks only)
+%% ------------------------------------------------------------------
+\providecolor{tutorPaper}{HTML}{FFFFFF}
+\providecolor{tutorInk}{HTML}{1A1A1A}
+\providecolor{tutorMuted}{HTML}{6A6A6A}
+\providecolor{tutorRule}{HTML}{D0D0D0}
+\providecolor{tutorPanel}{HTML}{F4F4F4}
+\providecolor{tutorAccent}{HTML}{24508F}
+\providecolor{tutorPast}{HTML}{8A8A8A}   % already-revealed steps
+
+\setbeamercolor{normal text}{fg=tutorInk,bg=tutorPaper}
+\setbeamercolor{background canvas}{bg=tutorPaper}
+\setbeamercolor{alerted text}{fg=tutorAccent}
+\setbeamercolor{structure}{fg=tutorAccent}
+\setbeamertemplate{navigation symbols}{}
+\setbeamercovered{invisible}
+% Slides: never hyphenate, prefer ragged lines.
+\hyphenpenalty=10000 \exhyphenpenalty=10000
+\setbeamertemplate{itemize item}{\color{tutorMuted}\textendash}
+\setbeamertemplate{itemize subitem}{\color{tutorMuted}\textendash}
+\setbeamertemplate{enumerate item}{\color{tutorAccent}\insertenumlabel.}
+
+%% ------------------------------------------------------------------
+%% Lesson metadata
+%% ------------------------------------------------------------------
+\def\tutor@examtag{}\def\tutor@lessonlabel{}\def\tutor@duration{}
+\def\tutor@target{}\def\tutor@learner{}
+\newcommand\examtag[1]{\gdef\tutor@examtag{#1}}
+\newcommand\lessonlabel[1]{\gdef\tutor@lessonlabel{#1}}
+\newcommand\duration[1]{\gdef\tutor@duration{#1}}
+\newcommand\target[1]{\gdef\tutor@target{#1}}
+\newcommand\learner[1]{\gdef\tutor@learner{#1}}
+\newcommand\insertexamtag{\tutor@examtag}
+\newcommand\insertlessonlabel{\tutor@lessonlabel}
+\newcommand\insertduration{\tutor@duration}
+\newcommand\inserttarget{\tutor@target}
+\newcommand\insertlearner{\tutor@learner}
+\newcommand\tutorIfEmpty[3]{\ifx#1\@empty#2\else#3\fi}
+
+%% Lesson stage, given as a frame option:  \begin{frame}[stage=Diagnose]{...}
+\def\tutor@stage{}
+\AddToHook{env/frame/before}{\gdef\tutor@stage{}}
+\define@key{beamerframe}{stage}{\gdef\tutor@stage{#1}}
+\newcommand\insertstage{\tutor@stage}
+\newcommand\ifstage[2]{\ifx\tutor@stage\@empty#2\else#1\fi}
+
+%% ------------------------------------------------------------------
+%% Style hooks (themes \renewcommand these)
+%% ------------------------------------------------------------------
+\newcommand\tutorLabelStyle{\footnotesize\bfseries}
+\newcommand\tutorLabelCase[1]{#1}
+\newcommand\tutorNumberStyle{\bfseries}
+\newcommand\tutorSampleStyle{}                % learner / model sentences
+\newcommand\tutorOriginalStyle{\large}
+\newcommand\tutorRevisedStyle{\large}
+\newcommand\tutorWhyStyle{\small}
+\newcommand\tutorAsideStyle{\small\color{tutorMuted}}
+\newcommand\tutorCueTaskStyle{\Large\bfseries}
+\newcommand\tutorPromptStyle{\normalsize}
+\newcommand\tutorTimerStyle{\fontsize{48}{48}\selectfont\bfseries}
+\newcommand\tutorIPAStyle{}
+\newcommand\tutorKeyStyle{\fontsize{30}{36}\selectfont\bfseries}
+\newcommand\tutorStepStyle{\normalsize}
+\newcommand\tutorCompareSep{\par\vspace{2.2ex}}
+\newcommand\tutorAnswerLines{0}               % blank writing lines per exit question
+
+\newlength\tutorLabelWidth  \setlength\tutorLabelWidth{0pt} % 0 = labels stacked above
+\newlength\tutorGutter      \setlength\tutorGutter{5mm}
+\newlength\tutorTimerWidth  \setlength\tutorTimerWidth{48mm}
+\newlength\tutorFlowGap     \setlength\tutorFlowGap{7mm}
+\newlength\tutorItemSep     \setlength\tutorItemSep{1.6ex}
+
+%% Labels in the user's language can be changed by the theme or the content
+\newcommand\tutorOriginalLabel{Student's sentence}
+\newcommand\tutorRevisedLabel{Revised}
+\newcommand\tutorWhyLabel{Why}
+\newcommand\tutorObjectivesLabel{By the end of this lesson, you can}
+\newcommand\tutorBandFocusLabel{Band focus}
+\newcommand\tutorCueIntro{You should say:}
+\newcommand\tutorPromptLabel{Question}
+\newcommand\tutorTimerCaption{countdown}
+\newcommand\tutorSummaryLabel{Today}
+\newcommand\tutorExitLabel{Exit check}
+\newcommand\tutorWordsLabel{Words to reuse}
+\newcommand\tutorReturnLabel{links back to the question}
+
+\newcommand\tutor@label[1]{{\tutorLabelStyle\color{tutorMuted}\tutorLabelCase{#1}}}
+\newcommand\tutorlabel[1]{\tutor@label{#1}}
+
+%% Row with label column (or stacked label when \tutorLabelWidth = 0)
+\newcommand\tutor@row[2]{%
+  \par\noindent
+  \ifdim\tutorLabelWidth>\z@
+    \parbox[t]{\tutorLabelWidth}{\raggedright\strut\tutor@label{#1}}%
+    \hspace{\tutorGutter}%
+    \parbox[t]{\dimexpr\linewidth-\tutorLabelWidth-\tutorGutter\relax}{\raggedright\leavevmode #2}%
+  \else
+    \parbox[t]{\linewidth}{\raggedright
+      \ifx\relax#1\relax\else\tutor@label{#1}\par\vspace{.5ex}\fi #2}%
+  \fi\par}
+
+%% ------------------------------------------------------------------
+%% Inline marks
+%% ------------------------------------------------------------------
+\newcounter{tutorerr}
+\def\tutor@wave{\bgroup\markoverwith{\textcolor{tutorAccent}{%
+  \lower3.6\p@\hbox{\sixly\char58}}}\ULon}
+\def\tutor@solid{\bgroup\markoverwith{\textcolor{tutorAccent}{%
+  \rule[-0.42ex]{2\p@}{0.8\p@}}}\ULon}
+\newcommand\tutorErrMark[1]{\textsuperscript{\,\tutorNumberStyle\color{tutorAccent}#1}}
+\newcommand\err[1]{\stepcounter{tutorerr}\tutor@wave{#1}\tutorErrMark{\arabic{tutorerr}}}
+\newcommand\fix[1]{\tutor@solid{#1}}
+\newcommand\sample[1]{{\tutorSampleStyle\textquotedblleft#1\textquotedblright}}
+\newcommand\ipa[1]{{\tutorIPAStyle #1}}
+\newcommand\aside[1]{\par\vspace{1.4ex}{\tutorAsideStyle #1\par}}
+
+%% Small drawn stopwatch glyph used by \timer (no emoji, no icon font)
+\newcommand\tutor@clock{\tikz[baseline=-.6ex,line width=.75pt]{%
+  \draw[tutorAccent] (0,0) circle (.42em);
+  \draw[tutorAccent] (0,0) -- (0,.26em);
+  \draw[tutorAccent] (0,0) -- (.18em,0);
+  \draw[tutorAccent] (-.12em,.56em) -- (.12em,.56em);}}
+\newcommand\timer[1]{\mbox{\tutor@clock\,{\tutorNumberStyle\color{tutorAccent}#1}}}
+
+%% ------------------------------------------------------------------
+%% Title slide and key-idea slide
+%% ------------------------------------------------------------------
+\newcommand\titleslide{\frame[plain,noframenumbering]{\titlepage}}
+
+\newcommand\tutorKeyframeSetup{}
+\newcommand\tutorKeyframeReset{}
+\def\insertkeylabel{}\def\insertkeytext{}
+\defbeamertemplate*{tutor keyidea}{default}{%
+  \vfill{\tutorKeyStyle\raggedright\insertkeytext\par}%
+  \ifx\insertkeylabel\@empty\else\vspace{3ex}\tutor@label{\insertkeylabel}\fi\vfill}
+% \frame{...} (command form) is used on purpose: the environment form
+% cannot be wrapped in a macro.
+\newcommand\keyframe[2][]{%
+  \gdef\insertkeylabel{#1}\gdef\insertkeytext{#2}%
+  \tutorKeyframeSetup
+  \frame[plain,c]{\usebeamertemplate{tutor keyidea}}%
+  \tutorKeyframeReset}
+
+%% ------------------------------------------------------------------
+%% Objectives
+%% ------------------------------------------------------------------
+\newcounter{tutorobj}
+\newcommand\tutorObjNumber[1]{{\tutorNumberStyle\color{tutorAccent}#1}}
+\newlength\tutorObjIndent \setlength\tutorObjIndent{9mm}
+\NewDocumentEnvironment{objectives}{O{\tutorObjectivesLabel}}{%
+  \par\noindent\tutor@label{#1}\par\vspace{1.4ex}%
+  \begin{list}{\tutorObjNumber{\arabic{tutorobj}}}{\usecounter{tutorobj}%
+    \setlength\leftmargin{\tutorObjIndent}\setlength\labelwidth{\tutorObjIndent}%
+    \setlength\labelsep{0pt}\setlength\itemsep{\tutorItemSep}%
+    \setlength\topsep{0pt}\setlength\parsep{0pt}%
+    \def\makelabel##1{##1\hfil}}\raggedright\tutorObjStyle}%
+  {\end{list}}
+\newcommand\tutorObjStyle{}
+\newcommand\bandfocus[1]{\par\vspace{3ex}\tutor@row{\tutorBandFocusLabel}{#1}}
+
+%% ------------------------------------------------------------------
+%% Compare: student's sentence vs revised
+%% ------------------------------------------------------------------
+\newcounter{tutorwhy}
+\newcommand\tutorWhyColumns{2}   % notes are laid out in 1 or 2 columns
+\def\tutor@whylist{}
+\newcommand\tutor@whybox[2]{% #1 number, #2 text
+  \parbox[t]{\dimexpr(\linewidth-\tutorGutter*(\tutorWhyColumns-1))/\tutorWhyColumns-1pt\relax}%
+    {\raggedright\tutorWhyStyle\hangindent1.3em\hangafter1\tutorWhyNumber{#1}#2\par}}
+\NewDocumentEnvironment{compare}{}{\setcounter{tutorerr}{0}\setcounter{tutorwhy}{0}%
+  \gdef\tutor@whylist{}}{%
+  \ifx\tutor@whylist\@empty\else
+    \tutor@row{\tutorWhyLabel}{\tutor@whylist}\fi\par}
+\NewDocumentCommand\original{O{\tutorOriginalLabel}m}{%
+  \tutor@row{#1}{{\tutorOriginalStyle\tutorSampleStyle #2\par}}\tutorCompareSep}
+\NewDocumentCommand\revised{O{\tutorRevisedLabel}m}{%
+  \tutor@row{#1}{{\tutorRevisedStyle\tutorSampleStyle #2\par}}\tutorCompareSep}
+\newcommand\tutorWhyNumber[1]{\makebox[1.3em][l]{\tutorNumberStyle\color{tutorAccent}#1}}
+\newcommand\why[1]{\stepcounter{tutorwhy}%
+  \edef\tutor@n{\arabic{tutorwhy}}%
+  \ifnum\value{tutorwhy}>1
+    \ifnum\numexpr\value{tutorwhy}-1-((\value{tutorwhy}-1)/\tutorWhyColumns)*\tutorWhyColumns\relax=0
+      \g@addto@macro\tutor@whylist{\par\vspace{.8ex}\noindent}%
+    \else
+      \g@addto@macro\tutor@whylist{\hspace{\tutorGutter}}%
+    \fi
+  \fi
+  \edef\tutor@tmp{\noexpand\tutor@whybox{\tutor@n}}%
+  \expandafter\g@addto@macro\expandafter\tutor@whylist\expandafter{\tutor@tmp{#1}}}
+
+%% ------------------------------------------------------------------
+%% Flow diagram (generic) and \peel shortcut
+%% ------------------------------------------------------------------
+\tikzset{
+  tutor flow key/.style={inner sep=0pt, font=\fontsize{40}{40}\selectfont\bfseries, text=tutorAccent},
+  tutor flow name/.style={inner sep=0pt, font=\normalsize\bfseries, text=tutorInk, align=left},
+  tutor flow text/.style={inner sep=0pt, font=\small, text=tutorInk, align=left},
+  tutor flow rule/.style={draw=tutorInk, line width=.6pt},
+  tutor flow arrow/.style={draw=tutorInk, line width=.6pt, -{Stealth[length=4pt,width=4pt]}},
+  tutor flow return/.style={draw=tutorMuted, line width=.5pt, -{Stealth[length=4pt,width=4pt]}},
+  tutor flow return label/.style={inner sep=2pt, font=\footnotesize, text=tutorMuted, fill=tutorPaper},
+}
+\newcounter{tutorflow}
+\NewDocumentEnvironment{flow}{o}{%
+  \setcounter{tutorflow}{0}%
+  \IfNoValueTF{#1}{\def\tutor@flowret{}}{\def\tutor@flowret{#1}}}%
+  {\tutor@drawflow}
+\NewDocumentCommand\flowstep{mmm}{%
+  \stepcounter{tutorflow}%
+  \expandafter\gdef\csname tutor@fsA\the\value{tutorflow}\endcsname{#1}%
+  \expandafter\gdef\csname tutor@fsB\the\value{tutorflow}\endcsname{#2}%
+  \expandafter\gdef\csname tutor@fsC\the\value{tutorflow}\endcsname{#3}}
+\newcommand\tutor@drawflow{%
+  \edef\tutor@n{\the\value{tutorflow}}%
+  \par\ifdim\lastskip=0pt\ifdim\pagetotal>0pt\vspace{1.5ex}\fi\fi\noindent
+  \begin{tikzpicture}
+    \pgfmathsetlengthmacro\tutor@colw{(\linewidth-(\tutor@n-1)*\tutorFlowGap)/\tutor@n}%
+    \foreach \i in {1,...,\tutor@n}{%
+      \pgfmathsetlengthmacro\tutor@x{(\i-1)*(\tutor@colw+\tutorFlowGap)}%
+      \node[tutor flow key, anchor=base west] (k\i) at (\tutor@x,0) {\csname tutor@fsA\i\endcsname};
+      \draw[tutor flow rule] (\tutor@x,-3.2mm) -- ++(\tutor@colw,0);
+      % fixed offsets (not chained to the name node) so columns share baselines
+      \node[tutor flow name, anchor=base west, text width=\tutor@colw] (n\i) at (\tutor@x,-7.6mm) {\csname tutor@fsB\i\endcsname};
+      \node[tutor flow text, anchor=north west, text width=\tutor@colw] (t\i) at (\tutor@x,-9.6mm) {\csname tutor@fsC\i\endcsname};
+      \ifnum\i<\tutor@n
+        \draw[tutor flow arrow] ($(\tutor@x,-3.2mm)+(\tutor@colw+1.2mm,0)$) -- ++(\tutorFlowGap-2.4mm,0);
+      \fi
+    }
+    \ifx\tutor@flowret\@empty\else
+      \path (current bounding box.south); \pgfgetlastxy{\tutor@fx}{\tutor@fy}%
+      \pgfmathsetlengthmacro\tutor@xl{(\tutor@n-1)*(\tutor@colw+\tutorFlowGap)+.5*\tutor@colw}%
+      \pgfmathsetlengthmacro\tutor@xf{.5*\tutor@colw}%
+      \pgfmathsetlengthmacro\tutor@ya{\tutor@fy-2.5mm}%
+      \pgfmathsetlengthmacro\tutor@yb{\tutor@fy-6.5mm}%
+      \draw[tutor flow return] (\tutor@xl,\tutor@ya) -- (\tutor@xl,\tutor@yb) -- (\tutor@xf,\tutor@yb) -- (\tutor@xf,\tutor@ya);
+      \node[tutor flow return label] at ({(\tutor@xl+\tutor@xf)/2},\tutor@yb) {\tutorLabelCase{\tutor@flowret}};
+    \fi
+  \end{tikzpicture}\par}
+\newcommand\peel[4]{%
+  \begin{flow}[\tutorReturnLabel]
+    \flowstep{P}{Point}{#1}\flowstep{E}{Explain}{#2}%
+    \flowstep{E}{Example}{#3}\flowstep{L}{Link}{#4}%
+  \end{flow}}
+
+%% ------------------------------------------------------------------
+%% Task cards: IELTS Speaking Part 2 cue card, generic task card
+%% ------------------------------------------------------------------
+\tcbset{
+  tutor card/.style={enhanced, sharp corners, boxrule=.6pt, colframe=tutorInk,
+    colback=tutorPaper, coltext=tutorInk, left=6mm, right=6mm, top=4.5mm, bottom=4.5mm},
+}
+\def\tutor@cueexplain{}\def\tutor@cuetiming{}
+\newcommand\tutorCueTiming[1]{\timer{#1}}   % how the timing note is drawn
+% The body is read twice: a silent pass collects \cueexplain / \cuetiming
+% (so the timing can sit on the card's top line), then the card is drawn.
+\NewDocumentEnvironment{cuecard}{O{IELTS Speaking \textperiodcentered{} Part 2}m+b}{%
+  \gdef\tutor@cueexplain{}\gdef\tutor@cuetiming{}%
+  \begingroup
+    \def\cue##1{}\def\cueexplain##1{\gdef\tutor@cueexplain{##1}}%
+    \def\cuetiming##1{\gdef\tutor@cuetiming{##1}}%
+    \setbox\z@\hbox{#3}%
+  \endgroup
+  \begin{tcolorbox}[before skip=.6ex, after skip=.6ex, tutor card]
+  \noindent\tutor@label{#1}\hfill
+    \ifx\tutor@cuetiming\@empty\else{\footnotesize\tutorCueTiming{\tutor@cuetiming}}\fi\par
+  \vspace{1.2ex}%
+  {\tutorCueTaskStyle\raggedright #2\par}\vspace{1.4ex}%
+  {\color{tutorMuted}\tutorCueIntro\par}\vspace{.6ex}%
+  \begin{list}{\color{tutorMuted}\textendash}{\setlength\leftmargin{1.2em}%
+    \setlength\itemsep{.3ex}\setlength\topsep{0pt}\setlength\parsep{0pt}}%
+    \def\cue{\item}\def\cueexplain##1{}\def\cuetiming##1{}%
+    #3
+  \end{list}%
+  \ifx\tutor@cueexplain\@empty\else\vspace{.6ex}\tutor@cueexplain\par\fi
+  \end{tcolorbox}\par}{}
+\NewDocumentEnvironment{taskcard}{O{Task}}{%
+  \begin{tcolorbox}[before skip=.6ex, after skip=.6ex, tutor card]\tutor@label{#1}\par\vspace{1.4ex}}{\end{tcolorbox}}
+
+%% ------------------------------------------------------------------
+%% Timed practice
+%% ------------------------------------------------------------------
+\newcommand\tutorTimerBlock[2]{% #1 time, #2 caption
+  {\tutorTimerStyle\color{tutorAccent}#1\par}\vspace{1ex}%
+  \tutor@label{#2}}
+\NewDocumentEnvironment{timed}{O{\tutorTimerCaption}m}{%
+  \par\noindent
+  \begin{minipage}[t]{\tutorTimerWidth}\vspace{0pt}\tutorTimerBlock{#2}{#1}\end{minipage}%
+  \hspace{\tutorGutter}%
+  \begin{minipage}[t]{\dimexpr\linewidth-\tutorTimerWidth-\tutorGutter\relax}\vspace{0pt}\raggedright}%
+  {\end{minipage}\par}
+\newcommand\prompt[1]{\tutor@label{\tutorPromptLabel}\par\vspace{.6ex}%
+  {\tutorPromptStyle #1\par}\vspace{2.4ex}}
+\newlength\tutorPhaseTimeWidth \setlength\tutorPhaseTimeWidth{17mm}
+\NewDocumentEnvironment{phases}{}{\par}{\par}
+\newcommand\phase[2]{\noindent
+  \makebox[\tutorPhaseTimeWidth][l]{\tutorNumberStyle\color{tutorAccent}#1}%
+  \parbox[t]{\dimexpr\linewidth-\tutorPhaseTimeWidth\relax}{\raggedright#2}\par\vspace{1ex}}
+
+%% ------------------------------------------------------------------
+%% Step-by-step reveal (overlays)
+%% ------------------------------------------------------------------
+\newlength\tutorStepLabelWidth \setlength\tutorStepLabelWidth{22mm}
+\newcommand\tutorStepLabel[2]{% #1 label, #2 current? (1/0)
+  \ifnum#2=1 {\tutorLabelStyle\color{tutorAccent}\tutorLabelCase{#1}}%
+  \else{\tutorLabelStyle\color{tutorPast}\tutorLabelCase{#1}}\fi}
+\newcommand\tutorStepNote[1]{{\footnotesize\color{tutorMuted}#1}}
+\NewDocumentEnvironment{reveal}{}{%
+  \begin{list}{}{\setlength\leftmargin{\tutorStepLabelWidth}%
+    \setlength\labelwidth{\tutorStepLabelWidth}\setlength\labelsep{0pt}%
+    \setlength\itemsep{\tutorStepSep}\setlength\topsep{0pt}\setlength\parsep{0pt}%
+    \def\makelabel##1{##1\hfil}}}%
+  {\end{list}}
+\newlength\tutorStepSep \setlength\tutorStepSep{1.3ex}
+\NewDocumentCommand\step{omm}{%
+  \item<+->[\alt<.>{\tutorStepLabel{#2}{1}}{\tutorStepLabel{#2}{0}}]%
+  {\tutorStepStyle\raggedright\alt<.>{\color{tutorInk}}{\color{tutorPast}}#3\par}%
+  \IfNoValueF{#1}{\only<.>{\vspace{.6ex}\tutorStepNote{#1}\par}}}
+
+%% ------------------------------------------------------------------
+%% Wrap-up
+%% ------------------------------------------------------------------
+\newcommand\tutorWrapStyle{}   % text size for summary / exit check / word list
+\NewDocumentEnvironment{summary}{O{\tutorSummaryLabel}}{%
+  \par\noindent\tutor@label{#1}\par\vspace{1ex}%
+  \begin{list}{\color{tutorMuted}\textendash}{\setlength\leftmargin{1.1em}%
+    \setlength\itemsep{.7ex}\setlength\topsep{0pt}\setlength\parsep{0pt}}\raggedright\tutorWrapStyle}%
+  {\end{list}\par\vspace{1.8ex}}
+\newcounter{tutorexit}
+\newcommand\tutor@answerlines{%
+  \ifnum\tutorAnswerLines>0
+    \par\foreach \n in {1,...,\tutorAnswerLines}{\par\vspace{1.8ex}\noindent
+      {\color{tutorRule}\leaders\hbox to 2.4pt{\hss\rule{1.4pt}{.6pt}\hss}\hskip\linewidth\kern0pt}}\par\vspace{-.4ex}
+  \fi}
+\NewDocumentEnvironment{exitcheck}{O{\tutorExitLabel}}{%
+  \par\noindent\tutor@label{#1}\par\vspace{1ex}%
+  \begin{list}{\tutorObjNumber{\arabic{tutorexit}}}{\usecounter{tutorexit}%
+    \setlength\leftmargin{1.6em}\setlength\labelwidth{1.6em}\setlength\labelsep{0pt}%
+    \setlength\itemsep{1.1ex}\setlength\topsep{0pt}\setlength\parsep{0pt}%
+    \def\makelabel##1{##1\hfil}}\raggedright\tutorWrapStyle
+  \let\tutor@item\item
+  \def\item{\ifnum\value{tutorexit}>0 \tutor@answerlines\fi\tutor@item}}%
+  {\tutor@answerlines\end{list}}
+\NewDocumentEnvironment{wordlist}{O{\tutorWordsLabel}}{%
+  \par\noindent\tutor@label{#1}\par\vspace{1ex}\raggedright}{\par}
+\newcommand\tutorVocabStyle{\tutorWrapStyle}
+\newcommand\vocab[3]{\noindent{\tutorVocabStyle{\bfseries #1}\enspace
+  \ipa{/#2/}\par\noindent{\color{tutorMuted}#3}\par}\vspace{.5ex}}
+
+\endinput

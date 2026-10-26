@@ -1,0 +1,122 @@
+%% beamerthemetutorswiss.sty -- (a) Swiss minimal
+%% Inter, hairlines, a left label column on a fixed grid, one ink-blue accent.
+%% XeLaTeX only. Fonts are loaded from ../fonts/ (relative to the compile dir).
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{beamerthemetutorswiss}[2026/10/26 v0.4 Swiss minimal tutor theme]
+
+\definecolor{tutorPaper}{HTML}{FFFFFF}
+\definecolor{tutorInk}{HTML}{15171A}
+\definecolor{tutorMuted}{HTML}{646A73}
+\definecolor{tutorRule}{HTML}{CDD1D6}
+\definecolor{tutorPanel}{HTML}{F2F3F5}
+\definecolor{tutorPast}{HTML}{8C929B}
+\definecolor{tutorAccent}{HTML}{24508F}
+\RequirePackage{tutorlesson}
+
+%% ---------- fonts ----------
+\usefonttheme{professionalfonts}
+\setsansfont{Inter}[Path=fonts/, Extension=.otf,
+  UprightFont=*-Regular, ItalicFont=*-Italic,
+  BoldFont=*-SemiBold, BoldItalicFont=*-SemiBoldItalic]
+\newfontfamily\tutorInterMedium{Inter}[Path=fonts/, Extension=.otf, Ligatures=TeX,
+  UprightFont=*-Medium, ItalicFont=*-MediumItalic, BoldFont=*-SemiBold]
+\newfontfamily\tutorInterDisplay{Inter}[Path=fonts/, Extension=.otf, Ligatures=TeX,
+  UprightFont=*-SemiBold, BoldFont=*-Bold, LetterSpace=-1.5]
+\newfontfamily\tutorInterTab{Inter}[Path=fonts/, Extension=.otf, Ligatures=TeX,
+  UprightFont=*-Medium, BoldFont=*-SemiBold, Numbers={Lining,Monospaced}]
+\newfontfamily\tutorIPAFont{Inter}[Path=fonts/, Extension=.otf,
+  UprightFont=*-Regular, ItalicFont=*-Italic]   % Inter 4 covers the IPA used for English
+
+%% ---------- geometry ----------
+\setbeamersize{text margin left=14mm, text margin right=14mm}
+\beamer@centeredfalse
+\setlength\tutorLabelWidth{28mm}
+\setlength\tutorGutter{6mm}
+\setlength\tutorTimerWidth{50mm}
+\setlength\tutorStepLabelWidth{28mm}
+\setlength\tutorObjIndent{8mm}
+\setlength\tutorItemSep{1.6ex}
+\setlength\tutorFlowGap{8mm}
+\setlength\tutorStepSep{1ex}
+
+%% ---------- hooks ----------
+\renewcommand\tutorLabelStyle{\fontsize{6.8}{8.5}\selectfont\tutorInterMedium\addfontfeature{LetterSpace=7}}
+\renewcommand\tutorLabelCase[1]{\MakeUppercase{#1}}
+\renewcommand\tutorNumberStyle{\tutorInterTab}
+\renewcommand\tutorOriginalStyle{\fontsize{11.5}{15.5}\selectfont\color{tutorInk}}
+\renewcommand\tutorRevisedStyle{\fontsize{11.5}{15.5}\selectfont}
+\renewcommand\tutorWhyStyle{\fontsize{9}{11.5}\selectfont}
+\renewcommand\tutorCompareSep{\par\vspace{1.8ex}}
+\renewcommand\tutorAsideStyle{\fontsize{9}{12}\selectfont\color{tutorMuted}}
+\renewcommand\tutorCueTaskStyle{\fontsize{13}{17}\selectfont\tutorInterDisplay}
+\renewcommand\tutorPromptStyle{\fontsize{11}{14.5}\selectfont}
+\renewcommand\tutorTimerStyle{\fontsize{50}{50}\selectfont\tutorInterTab\addfontfeature{LetterSpace=-4}}
+\renewcommand\tutorIPAStyle{\tutorIPAFont}
+\renewcommand\tutorKeyStyle{\fontsize{27}{32}\selectfont\tutorInterDisplay}
+\renewcommand\tutorStepStyle{\fontsize{10.5}{13.5}\selectfont}
+\renewcommand\tutorWrapStyle{\fontsize{9.5}{12}\selectfont}
+\renewcommand\tutorObjStyle{\fontsize{11}{14}\selectfont}
+
+\tikzset{
+  tutor flow key/.style={inner sep=0pt, font=\fontsize{38}{38}\selectfont\tutorInterDisplay, text=tutorInk},
+  tutor flow name/.style={inner sep=0pt, font=\fontsize{10}{12}\selectfont\bfseries, text=tutorAccent, align=left},
+  tutor flow text/.style={inner sep=0pt, font=\fontsize{9.5}{12.5}\selectfont, text=tutorInk, align=left},
+  tutor flow rule/.style={draw=tutorInk, line width=.8pt},
+  tutor flow arrow/.style={draw=tutorInk, line width=.8pt, -{Stealth[length=4.5pt,width=4.5pt]}},
+  tutor flow return/.style={draw=tutorMuted, line width=.5pt, -{Stealth[length=4pt,width=4pt]}},
+  tutor flow return label/.style={inner sep=3pt, font=\tutorLabelStyle, text=tutorMuted, fill=tutorPaper},
+}
+\tcbset{tutor card/.style={enhanced, sharp corners, frame hidden, boxrule=0pt,
+  colback=tutorPaper, coltext=tutorInk, left=0mm, right=0mm, top=3mm, bottom=3mm,
+  borderline north={1.2pt}{0pt}{tutorInk}, borderline south={.4pt}{0pt}{tutorRule}}}
+
+%% ---------- beamer fonts ----------
+\setbeamerfont{frametitle}{size=\fontsize{18}{22}, family=\tutorInterDisplay}
+\setbeamerfont{footline}{size=\fontsize{8}{10}}
+
+%% ---------- frame title ----------
+\setbeamertemplate{frametitle}{%
+  \vspace*{2mm}%
+  \hbox to\linewidth{%
+    \parbox[b]{.78\linewidth}{\usebeamerfont{frametitle}\color{tutorInk}\raggedright\insertframetitle}%
+    \hfill\ifstage{\tutorLabelStyle\color{tutorAccent}\MakeUppercase{\insertstage}}{}}%
+  \par\vspace{1mm}}
+
+%% ---------- footline ----------
+\setbeamertemplate{footline}{%
+  \leavevmode\hbox to\paperwidth{\hskip14mm\vbox{\hsize=\dimexpr\paperwidth-28mm\relax
+    {\color{tutorRule}\hrule height .4pt}\vskip 1.6mm
+    \hbox to\hsize{\tutorLabelStyle\color{tutorMuted}%
+      \MakeUppercase{\insertlessonlabel}\hskip 6mm\MakeUppercase{\insertexamtag}\hfill
+      {\tutorInterTab\addfontfeature{LetterSpace=0}\insertframenumber\,/\,\inserttotalframenumber}}}\hss}%
+  \vskip 3mm}
+
+%% ---------- title page ----------
+\setbeamertemplate{title page}{%
+  \begin{tikzpicture}[remember picture, overlay]
+    \node[anchor=north west, inner sep=0pt] at ([xshift=14mm,yshift=-11mm]current page.north west)
+      {\tutorLabelStyle\color{tutorAccent}\MakeUppercase{\insertexamtag}};
+    \node[anchor=south west, inner sep=0pt, text width=\paperwidth-40mm, align=left]
+      at ([xshift=14mm,yshift=36mm]current page.south west)
+      {{\fontsize{29}{33}\selectfont\tutorInterDisplay\color{tutorInk}\inserttitle\par}
+       \vspace{3mm}{\fontsize{12.5}{16}\selectfont\color{tutorMuted}\insertsubtitle\par}};
+    \draw[tutorInk, line width=1.2pt] ([xshift=14mm,yshift=27mm]current page.south west) -- ([xshift=-14mm,yshift=27mm]current page.south east);
+    \foreach \lab/\val [count=\k from 0] in
+      {Lesson/\insertlessonlabel, Duration/\insertduration, Prepared for/\insertlearner, Target/\inserttarget, Tutor/\insertauthor}{
+      \node[anchor=north west, inner sep=0pt, text width=25mm, align=left]
+        at ([xshift=14mm+\k*26.4mm,yshift=23mm]current page.south west)
+        {{\tutorLabelStyle\color{tutorMuted}\MakeUppercase{\lab}}\par\vspace{1.4mm}{\fontsize{9.5}{12}\selectfont\color{tutorInk}\val}};
+    }
+  \end{tikzpicture}}
+
+%% ---------- key idea ----------
+\defbeamertemplate*{tutor keyidea}{swiss}{%
+  \begin{tikzpicture}[remember picture, overlay]
+    \draw[tutorAccent, line width=2pt] ([xshift=14mm,yshift=-22mm]current page.north west) -- ++(16mm,0);
+    \node[anchor=north west, inner sep=0pt] at ([xshift=14mm,yshift=-27mm]current page.north west)
+      {\tutorLabelStyle\color{tutorMuted}\MakeUppercase{\insertkeylabel}};
+    \node[anchor=north west, inner sep=0pt, text width=\paperwidth-40mm, align=left]
+      at ([xshift=14mm,yshift=-36mm]current page.north west) {\tutorKeyStyle\color{tutorInk}\insertkeytext};
+  \end{tikzpicture}}
+
+\endinput

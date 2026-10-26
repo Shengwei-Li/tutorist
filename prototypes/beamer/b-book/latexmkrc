@@ -1,0 +1,4 @@
+# XeLaTeX only (Tectonic-compatible). Shared semantic layer lives in ../common
+$pdf_mode = 5;          # xelatex -> xdv -> pdf
+$xelatex = 'xelatex -interaction=nonstopmode -halt-on-error -file-line-error %O %S';
+ensure_path('TEXINPUTS', '../common//');

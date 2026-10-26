@@ -1,0 +1,128 @@
+% =====================================================================
+%  td-script.sty -- lesson script ("teacher's running script")
+%  Typographic system, readable at a glance:
+%    left rail  : clock time + cue label (SAY, EXPECT, PROBE, IF, DO, BOARD)
+%    roman serif: what the teacher says (verbatim)
+%    italic     : what the student is expected to say
+%    sans       : stage directions and contingency plans
+% =====================================================================
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{td-script}[2026/10/26 v0.3 TutorDesk lesson script]
+
+\newlength\TD@railw \setlength\TD@railw{20mm}
+\newcounter{tdstage}
+\newcount\TD@clock \TD@clock=0
+\newif\ifTD@firstrail
+
+% \TD@hmset\macro{minutes}: store "h:mm" in \macro
+\newcommand\TD@hmset[2]{%
+  \@tempcnta=\numexpr#2\relax \divide\@tempcnta 60
+  \@tempcntb=\numexpr#2-\@tempcnta*60\relax
+  \edef#1{\the\@tempcnta:\ifnum\@tempcntb<10 0\fi\the\@tempcntb}}
+
+% ---------------------------------------------------------------------
+%  running order (collected through the .aux file)
+% ---------------------------------------------------------------------
+\def\TD@rows{}
+\def\TD@rototal{}
+\newcommand\TD@rostage[5]{\g@addto@macro\TD@rows{\TD@rorow{#1}{#2}{#3}{#4}{#5}}}
+\newcommand\TD@rosettotal[1]{\gdef\TD@rototal{#1}}
+\newcommand\TD@rorow[5]{%
+  {\TD@numfamily #1\textendash#2} & {\TD@numfamily\color{tdmeta}#3} &
+  #4 & {\TD@numfamily\color{tdmeta}#5}\\}
+\newcommand\runningorder{%
+  \par\addvspace{4pt}\noindent\TD@kicker{Running order}\par\nobreak\vspace{2pt}%
+  \noindent
+  \begin{tabularx}{\linewidth}{@{}>{\raggedright}p{\dimexpr\TD@railw-2mm}@{\hspace{2mm}}r@{\hspace{5mm}}>{\raggedright\arraybackslash}X@{\hspace{4mm}}r@{}}
+    \TD@label[tdmeta]{Clock} & \TD@label[tdmeta]{Min} &
+    \TD@label[tdmeta]{Stage} & \TD@label[tdmeta]{Page}\\[-1pt]
+    \midrule[0.6pt]
+    \TD@rows
+    \bottomrule[0.4pt]
+  \end{tabularx}%
+  \ifx\TD@rototal\@empty\else
+    \par\noindent\hfill{\sffamily\small\color{tdmeta}Total \TD@rototal\ min}\fi
+  \par\addvspace{8pt}}
+\AtEndDocument{\immediate\write\@auxout{\string\TD@rosettotal{\the\TD@clock}}}
+
+% ---------------------------------------------------------------------
+%  \stage{minutes}{title}[aim]
+% ---------------------------------------------------------------------
+\NewDocumentCommand\stage{m m o}{%
+  \par\addvspace{16pt plus 4pt}\needspace{8\baselineskip}%
+  \stepcounter{tdstage}%
+  \edef\TD@start{\the\TD@clock}%
+  \advance\TD@clock by #1\relax
+  \global\TD@clock=\TD@clock
+  \edef\TD@end{\the\TD@clock}%
+  \TD@hmset\TD@starthm{\TD@start}\TD@hmset\TD@endhm{\TD@end}%
+  \protected@write\@auxout{}{\string\TD@rostage{\TD@starthm}{\TD@endhm}{#1}{\thetdstage\enspace #2}{\thepage}}%
+  {\hrule height 0.8pt}\nobreak\vspace{6pt}%
+  \noindent\makebox[\TD@railw][l]{\TD@numfamily\Large\color{tdaccent}\TD@starthm}%
+  {\sffamily\bfseries\large\thetdstage\hspace{2.5mm}#2}\hfill
+  {\TD@numfamily\small\color{tdmeta}#1 min\enspace\textperiodcentered\enspace to \TD@endhm}%
+  \par\nobreak
+  \IfValueT{#3}{\vspace{1pt}{\leftskip\TD@railw\noindent{\small\itshape Aim:\enspace}{\small #3}\par}\nobreak}%
+  \vspace{2pt}}
+
+% ---------------------------------------------------------------------
+%  rail mechanics
+% ---------------------------------------------------------------------
+\newcommand\TD@raillabel[1]{\TD@label{#1}}
+\newcommand\TD@railenv[2]{% label, colour
+  \par\addvspace{7pt}%
+  \raggedright\setlength\leftskip{\TD@railw}\setlength\parskip{4pt}%
+  \TD@firstrailtrue
+  \everypar{\ifTD@firstrail\global\TD@firstrailfalse
+    \llap{\makebox[\TD@railw][l]{\color{#2}\TD@raillabel{#1}}}\fi}}
+\newcommand\TD@railitem[1]{\par\noindent\hangindent=1.1em\hangafter=1
+  \makebox[1.1em][l]{\upshape\sffamily #1}\ignorespaces}
+
+% say: verbatim teacher talk, roman serif, slightly larger
+\NewDocumentEnvironment{say}{}
+  {\TD@railenv{Say}{tdaccent}\fontsize{11}{15.5}\selectfont}
+  {\par\global\TD@firstrailfalse\everypar{}}
+\newcommand\beat{\unskip\enspace{\sffamily\footnotesize\color{tdmeta}/\,pause\,/}\enspace\ignorespaces}
+
+% expect: likely student answers, italic
+\NewDocumentEnvironment{expect}{}
+  {\TD@railenv{Expect}{black}\itshape\let\item\TD@expectitem}
+  {\par\global\TD@firstrailfalse\everypar{}}
+\newcommand\TD@expectitem{\TD@railitem{\textendash}}
+
+% probe: follow-up questions, roman
+\NewDocumentEnvironment{probe}{}
+  {\TD@railenv{Probe}{black}\let\item\TD@probeitem}
+  {\par\global\TD@firstrailfalse\everypar{}}
+\newcommand\TD@probeitem{\TD@railitem{\TD@arrow}}
+
+% action: stage direction, sans
+\NewDocumentEnvironment{action}{}
+  {\TD@railenv{Do}{black}\sffamily\let\item\TD@actionitem}
+  {\par\global\TD@firstrailfalse\everypar{}}
+\newcommand\TD@actionitem{\TD@railitem{\textendash}}
+
+% fallback{condition}: plan B, sans, condition run in
+\NewDocumentEnvironment{fallback}{m}
+  {\TD@railenv{If}{black}\sffamily\let\item\TD@actionitem
+   \noindent{\bfseries #1\enspace}\TD@arrow\enspace\ignorespaces}
+  {\par\global\TD@firstrailfalse\everypar{}}
+
+% board: what goes on the whiteboard, framed
+\NewDocumentEnvironment{board}{+b}
+  {\TD@railenv{Board}{black}%
+   \noindent{\setlength\fboxsep{2.5mm}\setlength\fboxrule{0.5pt}%
+   \fbox{\parbox[t]{\dimexpr\linewidth-\TD@railw-5mm-1pt}{\sffamily\setlength\parskip{2pt}#1}}}\par
+   \global\TD@firstrailfalse\everypar{}}
+  {}
+
+% cue cards sit on the text column, not centred over the rail
+\renewcommand\TD@cuealign{\setlength\leftskip{\TD@railw}}
+\renewcommand\TD@cuewidth{\dimexpr\linewidth-\TD@railw-9mm-1.2pt\relax}
+
+% materials list
+\NewDocumentEnvironment{materials}{}
+  {\par\addvspace{4pt}\noindent\TD@kicker{Materials}\par\nobreak
+   \begin{itemize}[leftmargin=1.2em,itemsep=1pt,topsep=2pt]}
+  {\end{itemize}\par\addvspace{6pt}}
+\endinput

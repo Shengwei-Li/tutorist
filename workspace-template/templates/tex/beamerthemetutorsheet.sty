@@ -1,0 +1,146 @@
+%% beamerthemetutorsheet.sty -- (d) Hyperlegible worksheet
+%% Atkinson Hyperlegible Next, exam-paper conventions (numbered question box,
+%% ruled cards, writing lines in the exit check) so a student can annotate the
+%% PDF on a tablet. One petrol accent.
+%% XeLaTeX only. Fonts are loaded from ../fonts/ (relative to the compile dir).
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{beamerthemetutorsheet}[2026/10/26 v0.3 Worksheet tutor theme]
+
+\definecolor{tutorPaper}{HTML}{FFFFFF}
+\definecolor{tutorInk}{HTML}{111417}
+\definecolor{tutorMuted}{HTML}{5C6670}
+\definecolor{tutorRule}{HTML}{B9C1C8}
+\definecolor{tutorPanel}{HTML}{F1F4F6}
+\definecolor{tutorPast}{HTML}{7D8790}
+\definecolor{tutorAccent}{HTML}{0D6577}   % petrol
+\RequirePackage{tutorlesson}
+
+%% ---------- fonts ----------
+\usefonttheme{professionalfonts}
+\setsansfont{AtkinsonHyperlegibleNext}[Path=fonts/, Extension=.otf,
+  UprightFont=*-Regular, ItalicFont=*-RegularItalic,
+  BoldFont=*-SemiBold, BoldItalicFont=*-SemiBoldItalic]
+\newfontfamily\tutorAtkBold{AtkinsonHyperlegibleNext}[Path=fonts/, Extension=.otf, Ligatures=TeX,
+  UprightFont=*-Bold, ItalicFont=*-BoldItalic]
+\newfontfamily\tutorAtkTab{AtkinsonHyperlegibleNext}[Path=fonts/, Extension=.otf, Ligatures=TeX,
+  UprightFont=*-SemiBold, BoldFont=*-Bold, Numbers=Monospaced]
+\newfontfamily\tutorIPAFont{NotoSans}[Path=fonts/, Extension=.ttf,
+  UprightFont=*-Regular, ItalicFont=*-Italic, Scale=MatchLowercase]
+
+%% ---------- geometry ----------
+\setbeamersize{text margin left=14mm, text margin right=14mm}
+\beamer@centeredfalse
+\setlength\tutorLabelWidth{0pt}
+\setlength\tutorGutter{7mm}
+\setlength\tutorTimerWidth{44mm}
+\setlength\tutorStepLabelWidth{22mm}
+\setlength\tutorObjIndent{9mm}
+\setlength\tutorItemSep{1.4ex}
+\setlength\tutorFlowGap{6mm}
+\setlength\tutorStepSep{1ex}
+\renewcommand\tutorAnswerLines{1}
+
+%% ---------- hooks ----------
+\renewcommand\tutorLabelStyle{\fontsize{8.5}{10.5}\selectfont\bfseries}
+\renewcommand\tutor@label[1]{{\tutorLabelStyle\color{tutorAccent}#1}}
+\renewcommand\tutorNumberStyle{\tutorAtkBold}
+\renewcommand\tutorOriginalStyle{\fontsize{11.5}{15}\selectfont}
+\renewcommand\tutorRevisedStyle{\fontsize{11.5}{15}\selectfont}
+\renewcommand\tutorWhyStyle{\fontsize{9}{11.2}\selectfont}
+\renewcommand\tutorCompareSep{\par\vspace{1.6ex}}
+\renewcommand\tutorWhyColumns{2}
+\renewcommand\tutorAsideStyle{\fontsize{9.5}{12.5}\selectfont\color{tutorMuted}}
+\renewcommand\tutorCueTaskStyle{\fontsize{13}{16.5}\selectfont\bfseries}
+\renewcommand\tutorPromptStyle{\fontsize{11}{14.5}\selectfont}
+\renewcommand\tutorIPAStyle{\tutorIPAFont}
+\renewcommand\tutorKeyStyle{\fontsize{22}{28}\selectfont\bfseries}
+\renewcommand\tutorStepStyle{\fontsize{10.5}{13.8}\selectfont}
+\renewcommand\tutorWrapStyle{\fontsize{9.5}{12}\selectfont}
+\renewcommand\tutorObjStyle{\fontsize{11}{14}\selectfont}
+\renewcommand\tutorObjNumber[1]{\tutor@qbox{#1}}
+\renewcommand\tutorWhyNumber[1]{\makebox[1.4em][l]{\tutorNumberStyle\color{tutorAccent}#1}}
+\renewcommand\tutorStepLabel[2]{%
+  \ifnum#2=1 {\tutorLabelStyle\color{tutorAccent}#1}\else{\tutorLabelStyle\color{tutorPast}#1}\fi}
+% compare: the student's sentence sits in a dashed box, the revision in a solid one
+\renewcommand\tutorCompareSep{\par\vspace{1.4ex}}
+
+% thin square question box, as on an exam paper
+\newcommand\tutor@qbox[1]{\tikz[baseline=(q.base)]\node[draw=tutorInk, line width=.6pt,
+  minimum width=1.25em, minimum height=1.25em, inner sep=0pt, font=\tutorAtkBold\fontsize{8.5}{9}\selectfont] (q) {#1};}
+
+% countdown dial: ring with one tick per minute, digits inside
+\renewcommand\tutorTimerBlock[2]{%
+  \begin{tikzpicture}
+    \def\r{19mm}
+    \draw[tutorRule, line width=1pt] (0,0) circle (\r);
+    \draw[tutorAccent, line width=2.2pt] (90:\r) arc (90:-270:\r);
+    \foreach \m in {0,...,7}{\draw[tutorPaper, line width=1.2pt] (90-\m*45:\r-1.4mm) -- (90-\m*45:\r+1.4mm);}
+    \node[font=\fontsize{30}{30}\selectfont\tutorAtkTab, text=tutorInk] at (0,1mm) {#1};
+    \node[font=\tutorLabelStyle, text=tutorMuted] at (0,-7.5mm) {#2};
+  \end{tikzpicture}}
+
+\setbeamertemplate{itemize item}{\color{tutorInk}\textbullet}
+
+\tikzset{
+  tutor flow key/.style={inner sep=0pt, font=\fontsize{30}{30}\selectfont\tutorAtkBold, text=tutorInk},
+  tutor flow name/.style={inner sep=0pt, font=\fontsize{10.5}{13}\selectfont\bfseries, text=tutorAccent, align=left},
+  tutor flow text/.style={inner sep=0pt, font=\fontsize{10}{13}\selectfont, text=tutorInk, align=left},
+  tutor flow rule/.style={draw=tutorInk, line width=1.2pt},
+  tutor flow arrow/.style={draw=tutorInk, line width=1pt, -{Stealth[length=5pt,width=5pt]}},
+  tutor flow return/.style={draw=tutorMuted, line width=.6pt, -{Stealth[length=4pt,width=4pt]}},
+  tutor flow return label/.style={inner sep=3pt, font=\fontsize{8.5}{10}\selectfont, text=tutorMuted, fill=tutorPaper},
+}
+\tcbset{tutor card/.style={enhanced, sharp corners, boxrule=.9pt, colframe=tutorInk,
+  colback=tutorPaper, coltext=tutorInk, left=6mm, right=6mm, top=3mm, bottom=3mm}}
+
+%% ---------- header: exam-paper strip ----------
+\setbeamertemplate{headline}{%
+  \vskip 4mm
+  \hbox to\paperwidth{\hskip14mm\vbox{\hsize=\dimexpr\paperwidth-28mm\relax
+    \hbox to\hsize{\fontsize{8}{10}\selectfont\color{tutorMuted}%
+      \insertexamtag\hfill\insertlessonlabel\enspace\textperiodcentered\enspace\insertlearner}%
+    \vskip 1.6mm{\color{tutorInk}\hrule height .6pt}}\hss}}
+\setbeamerfont{frametitle}{size=\fontsize{15}{18}, series=\bfseries}
+\setbeamertemplate{frametitle}{%
+  \vspace*{1.5mm}%
+  \hbox{\tutor@qbox{\insertframenumber}\hskip 3mm%
+    {\usebeamerfont{frametitle}\color{tutorInk}\insertframetitle}%
+    \ifstage{\hskip 3mm{\fontsize{9}{11}\selectfont\color{tutorMuted}\insertstage}}{}}%
+  \par\vspace{1.5mm}}
+
+%% ---------- footline ----------
+\setbeamertemplate{footline}{%
+  \hbox to\paperwidth{\hskip14mm{\fontsize{8}{10}\selectfont\color{tutorMuted}\insertshorttitle}\hfill
+    {\fontsize{8}{10}\selectfont\color{tutorMuted}Page \insertframenumber\ of \inserttotalframenumber}\hskip14mm}%
+  \vskip 3mm}
+
+%% ---------- title page ----------
+\setbeamertemplate{title page}{%
+  \begin{tikzpicture}[remember picture, overlay]
+    \draw[tutorInk, line width=.6pt] ([xshift=14mm,yshift=-14mm]current page.north west) -- ([xshift=-14mm,yshift=-14mm]current page.north east);
+    \node[anchor=south west, inner sep=0pt] at ([xshift=14mm,yshift=-12.4mm]current page.north west)
+      {\fontsize{8.5}{10}\selectfont\bfseries\color{tutorAccent}\insertexamtag};
+    \node[anchor=south east, inner sep=0pt] at ([xshift=-14mm,yshift=-12.4mm]current page.north east)
+      {\fontsize{8.5}{10}\selectfont\color{tutorMuted}\insertlessonlabel\enspace\textperiodcentered\enspace\insertduration};
+    \node[anchor=west, inner sep=0pt, text width=\paperwidth-40mm, align=left]
+      at ([xshift=14mm,yshift=6mm]current page.west)
+      {{\fontsize{27}{32}\selectfont\tutorAtkBold\color{tutorInk}\inserttitle\par}
+       \vspace{3mm}{\fontsize{13}{17}\selectfont\color{tutorMuted}\insertsubtitle\par}};
+    % worksheet fields
+    \foreach \lab/\val [count=\k from 0] in {Student/\insertlearner, Target/\inserttarget, Tutor/\insertauthor}{
+      \node[anchor=south west, inner sep=0pt] at ([xshift=14mm+\k*44mm,yshift=17mm]current page.south west)
+        {\fontsize{8.5}{10}\selectfont\color{tutorMuted}\lab\enspace{\fontsize{10.5}{12}\selectfont\color{tutorInk}\val}};
+      \draw[tutorRule, line width=.5pt] ([xshift=14mm+\k*44mm,yshift=15.6mm]current page.south west) -- ++(40mm,0);
+    }
+  \end{tikzpicture}}
+
+%% ---------- key idea: a ruled "Remember" panel ----------
+\defbeamertemplate*{tutor keyidea}{sheet}{%
+  \begin{tikzpicture}[remember picture, overlay]
+    \node[anchor=west, draw=tutorInk, line width=.9pt, inner xsep=9mm, inner ysep=8mm,
+      text width=\paperwidth-28mm-18mm, align=left] (k) at ([xshift=14mm]current page.west)
+      {{\fontsize{9}{11}\selectfont\bfseries\color{tutorAccent}\insertkeylabel}\par\vspace{3mm}
+       {\tutorKeyStyle\color{tutorInk}\insertkeytext}};
+  \end{tikzpicture}}
+
+\endinput

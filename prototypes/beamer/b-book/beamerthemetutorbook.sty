@@ -1,0 +1,139 @@
+%% beamerthemetutorbook.sty -- (b) Textbook / book page
+%% Source Serif 4 text, small-caps rubrics in one rubric red, running head
+%% and centred folio, generous text block. Charis SIL for IPA.
+%% XeLaTeX only. Fonts are loaded from ../fonts/ (relative to the compile dir).
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{beamerthemetutorbook}[2026/10/26 v0.3 Textbook tutor theme]
+
+\definecolor{tutorPaper}{HTML}{FFFFFF}
+\definecolor{tutorInk}{HTML}{1E1C1A}
+\definecolor{tutorMuted}{HTML}{6B6762}
+\definecolor{tutorRule}{HTML}{CFCAC3}
+\definecolor{tutorPanel}{HTML}{F5F3EF}
+\definecolor{tutorPast}{HTML}{8F8A84}
+\definecolor{tutorAccent}{HTML}{9B2A1D}   % rubric red
+\RequirePackage{tutorlesson}
+
+%% ---------- fonts ----------
+\usefonttheme{serif}
+\usefonttheme{professionalfonts}
+\setmainfont{SourceSerif4}[Path=../fonts/, Extension=.otf,
+  UprightFont=*-Regular, ItalicFont=*-RegularIt,
+  BoldFont=*-Semibold, BoldItalicFont=*-SemiboldIt,
+  Numbers={OldStyle,Proportional}]
+\newfontfamily\tutorSerifLining{SourceSerif4}[Path=../fonts/, Extension=.otf, Ligatures=TeX,
+  UprightFont=*-Regular, ItalicFont=*-RegularIt, BoldFont=*-Semibold,
+  Numbers={Lining,Monospaced}]
+\newfontfamily\tutorSC{SourceSerif4}[Path=../fonts/, Extension=.otf, Ligatures=TeX,
+  UprightFont=*-Semibold, Letters=SmallCaps, LetterSpace=5, Numbers=OldStyle]
+\newfontfamily\tutorSans{SourceSans3}[Path=../fonts/, Extension=.otf, Ligatures=TeX,
+  UprightFont=*-Regular, ItalicFont=*-RegularIt, BoldFont=*-Semibold]
+\newfontfamily\tutorIPAFont{CharisSIL}[Path=../fonts/, Extension=.ttf,
+  UprightFont=*-Regular, ItalicFont=*-Italic, Scale=MatchLowercase]
+
+%% ---------- geometry ----------
+\setbeamersize{text margin left=17mm, text margin right=17mm}
+\beamer@centeredfalse
+\setlength\tutorLabelWidth{26mm}
+\setlength\tutorGutter{6mm}
+\setlength\tutorTimerWidth{44mm}
+\setlength\tutorStepLabelWidth{22mm}
+\setlength\tutorObjIndent{8mm}
+\setlength\tutorItemSep{1.4ex}
+\setlength\tutorFlowGap{7mm}
+\setlength\tutorStepSep{1ex}
+
+%% ---------- hooks ----------
+% Rubric labels: lower-case small caps, letterspaced, in rubric red
+\renewcommand\tutorLabelStyle{\fontsize{9}{11}\selectfont\tutorSC\color{tutorAccent}}
+\renewcommand\tutorLabelCase[1]{\MakeLowercase{#1}}
+\renewcommand\tutor@label[1]{{\tutorLabelStyle\tutorLabelCase{#1}}}
+\renewcommand\tutorNumberStyle{\tutorSerifLining\bfseries}
+\renewcommand\tutorOriginalStyle{\fontsize{11.5}{15}\selectfont}
+\renewcommand\tutorRevisedStyle{\fontsize{11.5}{15}\selectfont}
+\renewcommand\tutorWhyStyle{\fontsize{9.5}{12}\selectfont}
+\renewcommand\tutorCompareSep{\par\vspace{1.8ex}}
+\renewcommand\tutorAsideStyle{\fontsize{9.5}{12.5}\selectfont\itshape\color{tutorMuted}}
+\renewcommand\tutorCueTaskStyle{\fontsize{13}{16.5}\selectfont\bfseries}
+\renewcommand\tutorPromptStyle{\fontsize{11.5}{15}\selectfont\itshape}
+\renewcommand\tutorTimerStyle{\fontsize{46}{46}\selectfont\tutorSerifLining}
+\renewcommand\tutorIPAStyle{\tutorIPAFont}
+\renewcommand\tutorKeyStyle{\fontsize{24}{31}\selectfont\itshape}
+\renewcommand\tutorStepStyle{\fontsize{10.5}{13.5}\selectfont}
+\renewcommand\tutorWrapStyle{\fontsize{9.5}{12}\selectfont}
+\renewcommand\tutorObjStyle{\fontsize{11}{14.5}\selectfont}
+\renewcommand\tutorWhyNumber[1]{\makebox[1.2em][l]{\tutorNumberStyle\color{tutorAccent}\fontsize{8.5}{10}\selectfont#1}}
+\renewcommand\tutorErrMark[1]{\textsuperscript{\,\tutorSerifLining\color{tutorAccent}#1}}
+\renewcommand\tutorStepLabel[2]{%
+  \ifnum#2=1 {\tutorLabelStyle\tutorLabelCase{#1}}%
+  \else{\fontsize{9}{11}\selectfont\tutorSC\color{tutorPast}\tutorLabelCase{#1}}\fi}
+\renewcommand\tutorStepNote[1]{{\fontsize{9}{11}\selectfont\itshape\color{tutorMuted}#1}}
+
+\setbeamertemplate{itemize item}{\color{tutorAccent}\textbullet}
+
+\tikzset{
+  tutor flow key/.style={inner sep=0pt, font=\fontsize{36}{36}\selectfont\tutorSerifLining, text=tutorAccent},
+  tutor flow name/.style={inner sep=0pt, font=\fontsize{10}{12}\selectfont\tutorSC, text=tutorInk, align=left},
+  tutor flow text/.style={inner sep=0pt, font=\fontsize{10}{13}\selectfont, text=tutorInk, align=left},
+  tutor flow rule/.style={draw=tutorInk, line width=.4pt},
+  tutor flow arrow/.style={draw=tutorInk, line width=.4pt, -{Stealth[length=3.5pt,width=3.5pt]}},
+  tutor flow return/.style={draw=tutorMuted, line width=.4pt, dash pattern=on 1.5pt off 1.5pt, -{Stealth[length=3.5pt,width=3.5pt]}},
+  tutor flow return label/.style={inner sep=3pt, font=\fontsize{9}{11}\selectfont\itshape, text=tutorMuted, fill=tutorPaper},
+}
+% Exam-paper card: double hairline frame
+\tcbset{tutor card/.style={enhanced, sharp corners, frame hidden, boxrule=0pt,
+  colback=tutorPaper, coltext=tutorInk, left=7mm, right=7mm, top=2.5mm, bottom=2.5mm,
+  borderline={.5pt}{0pt}{tutorInk}, borderline={.3pt}{1.1mm}{tutorInk}}}
+
+%% ---------- beamer fonts ----------
+\setbeamerfont{frametitle}{size=\fontsize{17}{21}, series=\bfseries}
+
+%% ---------- running head + frame title ----------
+\setbeamertemplate{headline}{%
+  \vskip 4.5mm
+  \hbox to\paperwidth{\hskip17mm\vbox{\hsize=\dimexpr\paperwidth-34mm\relax
+    \hbox to\hsize{\fontsize{8.5}{10}\selectfont\tutorSC\color{tutorMuted}%
+      \MakeLowercase{\insertlessonlabel}\enspace\textperiodcentered\enspace\insertshorttitle\hfill
+      {\fontsize{9}{10}\selectfont\itshape\color{tutorMuted}\insertstage}}%
+    \vskip 1.6mm{\color{tutorRule}\hrule height .4pt}}\hss}}
+\setbeamertemplate{frametitle}{%
+  \vspace*{1.5mm}%
+  {\usebeamerfont{frametitle}\color{tutorInk}\raggedright\insertframetitle\par}%
+  \vspace{1mm}}
+
+%% ---------- folio ----------
+\setbeamertemplate{footline}{%
+  \hbox to\paperwidth{\hfil{\fontsize{9}{10}\selectfont\color{tutorMuted}\insertframenumber}\hfil}%
+  \vskip 3.5mm}
+
+%% ---------- title page ----------
+\setbeamertemplate{title page}{%
+  \begin{tikzpicture}[remember picture, overlay]
+    \node[anchor=north, inner sep=0pt] (tag) at ([yshift=-15mm]current page.north)
+      {\fontsize{10}{12}\selectfont\tutorSC\color{tutorAccent}\MakeLowercase{\insertexamtag}};
+    \node[anchor=center, inner sep=0pt, text width=\paperwidth-50mm, align=center]
+      (t) at ([yshift=5mm]current page.center)
+      {{\fontsize{28}{33}\selectfont\color{tutorInk}\inserttitle\par}
+       \vspace{3mm}
+       {\fontsize{13}{17}\selectfont\itshape\color{tutorMuted}\insertsubtitle\par}};
+    \draw[tutorAccent, line width=.6pt] ([xshift=-6mm,yshift=-6mm]t.south) -- ([xshift=6mm,yshift=-6mm]t.south);
+    \node[anchor=south, inner sep=0pt, text width=\paperwidth-40mm, align=center]
+      at ([yshift=14mm]current page.south)
+      {{\fontsize{9.5}{12}\selectfont\tutorSC\color{tutorMuted}%
+        \MakeLowercase{\insertlessonlabel}\enspace\textperiodcentered\enspace
+        \MakeLowercase{\insertduration}\enspace\textperiodcentered\enspace
+        \MakeLowercase{\inserttarget}}\par\vspace{2.2mm}
+       {\fontsize{10.5}{13}\selectfont\itshape\color{tutorInk}Prepared for \insertlearner\ by \insertauthor}};
+  \end{tikzpicture}}
+
+%% ---------- key idea ----------
+\defbeamertemplate*{tutor keyidea}{book}{%
+  \begin{tikzpicture}[remember picture, overlay]
+    \node[anchor=center, inner sep=0pt, text width=\paperwidth-50mm, align=center]
+      (k) at ([yshift=4mm]current page.center) {\tutorKeyStyle\color{tutorInk}\insertkeytext};
+    \draw[tutorAccent, line width=.6pt] ([xshift=-6mm,yshift=-6mm]k.south) -- ([xshift=6mm,yshift=-6mm]k.south);
+    \node[anchor=north, inner sep=0pt] at ([yshift=-10mm]k.south)
+      {\fontsize{9.5}{11}\selectfont\tutorSC\color{tutorAccent}\MakeLowercase{\insertkeylabel}};
+  \end{tikzpicture}}
+
+\endinput

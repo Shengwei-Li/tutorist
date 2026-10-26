@@ -1,0 +1,505 @@
+% =====================================================================
+%  td-exercises.sty -- exercise environments for tutordesk.cls
+%  Every auto-gradable item registers its answer in the answer key.
+% =====================================================================
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{td-exercises}[2026/10/26 v0.3 TutorDesk exercises]
+
+\newcounter{tdexercise}
+\newcounter{tdq}
+\newif\ifTD@inq
+\newlength\TD@qskip  \setlength\TD@qskip{6pt plus 2pt}
+\newlength\TD@linegap \setlength\TD@linegap{8.5mm}
+
+% ---------------------------------------------------------------------
+%  exercise
+% ---------------------------------------------------------------------
+\def\TD@setrange#1#2#3{\expandafter\gdef\csname TD@range@#1\endcsname{%
+  \ifnum#2=#3 Question~#2\else Questions~#2\textendash#3\fi}}
+\newcommand\TD@rangetext[1]{\ifcsname TD@range@#1\endcsname
+  \csname TD@range@#1\endcsname\fi}
+
+\ExplSyntaxOn
+\tl_new:N \l__td_ex_tag_tl
+\int_new:N \l__td_ex_cols_int
+\keys_define:nn { td / exercise }
+  {
+    tag     .tl_set:N  = \l__td_ex_tag_tl ,
+    columns .int_set:N = \l__td_ex_cols_int ,
+    columns .initial:n = 1 ,
+  }
+\NewDocumentEnvironment{exercise}{ O{} m +b }
+  {
+    \keys_set:nn { td / exercise } {#1}
+    \TD@exercisehead {#2} { \l__td_ex_tag_tl }
+    \int_compare:nNnTF \l__td_ex_cols_int > 1
+      { \begin{twocol} #3 \end{twocol} }
+      { #3 }
+    \TD@exerciseend
+  }
+  { }
+\ExplSyntaxOff
+
+\newcommand\TD@exercisehead[2]{%
+  \par\addvspace{18pt plus 4pt}\needspace{7\baselineskip}%
+  \refstepcounter{tdexercise}%
+  \xdef\TD@exfirst{\the\numexpr\value{tdq}+1\relax}%
+  \td@answersection{\thetdexercise}{#1}%
+  \noindent\makebox[\TD@qindent][l]{\TD@numfamily\large\color{tdaccent}\thetdexercise}%
+  {\sffamily\bfseries\large #1}\hfill
+  {\sffamily\small\color{tdmeta}#2%
+    \ifcsname TD@range@\thetdexercise\endcsname
+      \if\relax\detokenize{#2}\relax\else\enspace\textperiodcentered\enspace\fi
+      \TD@rangetext{\thetdexercise}\fi}%
+  \par\nobreak\vspace{3pt}{\color{tdrule}\hrule height 0.4pt}\nobreak\vspace{7pt}}
+\ExplSyntaxOn
+\cs_new_eq:NN \td@answersection \td_answer_section:nn
+\ExplSyntaxOff
+\newcommand\TD@exerciseend{%
+  \ifnum\value{tdq}<\TD@exfirst\relax\else
+    \immediate\write\@auxout{\string\TD@setrange{\thetdexercise}{\TD@exfirst}{\the\value{tdq}}}%
+  \fi}
+
+\newcommand\instructions[1]{\par\addvspace{2pt}{\itshape #1\par}\addvspace{5pt}}
+
+% ---------------------------------------------------------------------
+%  Columns. Short items go in twocol; passages and long answer lines
+%  stay single-column at full width.
+% ---------------------------------------------------------------------
+\setlength\columnsep{8mm}
+\setlength\multicolsep{4pt plus 2pt}
+\newenvironment{twocol}[1][2]
+  {\par\addvspace{2pt}\begin{multicols}{#1}\raggedcolumns\raggedright}
+  {\end{multicols}\par}
+
+% ---------------------------------------------------------------------
+%  passage  (reading text, single column, lettered paragraphs)
+% ---------------------------------------------------------------------
+\NewDocumentEnvironment{passage}{o o}{%
+  \par\addvspace{6pt}%
+  \IfValueT{#1}{\noindent{\sffamily\bfseries\large #1}\par\nobreak
+    \IfValueT{#2}{\noindent{\small\itshape\color{tdmeta}#2}\par\nobreak}\vspace{3pt}}%
+  \begingroup\setlength\leftskip{\TD@qindent}\setlength\parskip{5pt}}
+  {\par\endgroup\addvspace{8pt}}
+\newcommand\plabel[1]{\noindent\llap{\makebox[\TD@qindent][l]{\TD@numfamily #1}}\ignorespaces}
+
+% ---------------------------------------------------------------------
+%  question: number in the left rail, body never splits across
+%  columns or pages
+% ---------------------------------------------------------------------
+\NewDocumentEnvironment{question}{o}{%
+  \par\addvspace{\TD@qskip}\refstepcounter{tdq}\TD@inqtrue
+  \noindent\begin{minipage}[t]{\linewidth}%
+  \makebox[\TD@qindent][l]{\TD@qnum{\IfValueTF{#1}{#1}{\thetdq}}}%
+  \begin{minipage}[t]{\dimexpr\linewidth-\TD@qindent\relax}%
+  \setlength\parskip{3pt}\raggedright\ignorespaces}
+  {\par\end{minipage}\end{minipage}\par\addvspace{\TD@qskip}}
+
+% ---------------------------------------------------------------------
+%  choices: \choice text / \choice* correct text ; layout 4 / 2 / 1
+%  columns chosen from the widest option unless forced: [cols]
+% ---------------------------------------------------------------------
+\newcommand\TD@markcorrect[1]{{\setlength\fboxsep{0.7pt}%
+  \colorbox{tdaccent}{\color{white}\TD@numfamily\makebox[1.05em]{#1}}}}
+\newcommand\TD@markplain[1]{\hbox{\kern0.7pt\TD@numfamily\makebox[1.05em][l]{#1}\kern0.7pt}}
+
+\ExplSyntaxOn
+\seq_new:N \l__td_choice_seq
+\dim_new:N \l__td_choice_max_dim
+\dim_new:N \l__td_choice_cell_dim
+\int_new:N \l__td_choice_cols_int
+\int_new:N \l__td_choice_idx_int
+\int_new:N \l__td_choice_n_int
+\box_new:N \l__td_choice_box
+\tl_new:N \l__td_choice_body_tl
+\tl_new:N \l__td_choice_correct_tl
+\bool_new:N \l__td_choice_ok_bool
+\dim_const:Nn \c__td_choice_gap_dim { 4mm }
+\dim_const:Nn \c__td_choice_lab_dim { 6mm }
+
+\cs_new_protected:Npn \__td_choice_parse:n #1
+  {
+    \tl_if_head_eq_charcode:nNTF {#1} *
+      {
+        \bool_set_true:N \l__td_choice_ok_bool
+        \tl_set:No \l__td_choice_body_tl { \use_none:n #1 }
+        \tl_trim_spaces:N \l__td_choice_body_tl
+      }
+      { \bool_set_false:N \l__td_choice_ok_bool \tl_set:Nn \l__td_choice_body_tl {#1} }
+  }
+\cs_new_protected:Npn \__td_choice_cell:n #1
+  {
+    \__td_choice_parse:n {#1}
+    \tl_set:Ne \l_tmpb_tl { \int_to_Alph:n { \l__td_choice_idx_int } }
+    \parbox[t]{\l__td_choice_cell_dim}
+      {
+        \raggedright \hangindent=\c__td_choice_lab_dim \hangafter=1 \noindent
+        \makebox[\c__td_choice_lab_dim][l]
+          {
+            \bool_lazy_and:nnTF { \l__td_choice_ok_bool } { \legacy_if_p:n { TD@teacher } }
+              { \TD@markcorrect { \l_tmpb_tl } } { \TD@markplain { \l_tmpb_tl } }
+          }
+        \l__td_choice_body_tl \strut
+      }
+  }
+\tl_new:N \l__td_choice_row_tl
+\cs_new_protected:Npn \__td_choice_cellx:nn #1#2
+  {
+    \int_set:Nn \l__td_choice_idx_int {#1}
+    \__td_choice_cell:n {#2}
+  }
+\NewDocumentEnvironment{choices}{ O{0} +b }
+  {
+    \seq_set_split:Nnn \l__td_choice_seq { \choice } {#2}
+    \seq_pop_left:NN \l__td_choice_seq \l_tmpa_tl
+    \int_set:Nn \l__td_choice_n_int { \seq_count:N \l__td_choice_seq }
+    \dim_zero:N \l__td_choice_max_dim
+    \seq_map_inline:Nn \l__td_choice_seq
+      {
+        \__td_choice_parse:n {##1}
+        \hbox_set:Nn \l__td_choice_box { \l__td_choice_body_tl }
+        \dim_set:Nn \l__td_choice_max_dim
+          { \dim_max:nn { \l__td_choice_max_dim } { \box_wd:N \l__td_choice_box } }
+      }
+    \int_compare:nNnTF {#1} > 0
+      { \int_set:Nn \l__td_choice_cols_int {#1} }
+      {
+        \dim_compare:nNnTF
+          { \l__td_choice_max_dim + \c__td_choice_lab_dim }
+          < { ( \linewidth - 3\c__td_choice_gap_dim ) / 4 }
+          { \int_set:Nn \l__td_choice_cols_int { 4 } }
+          {
+            \dim_compare:nNnTF
+              { \l__td_choice_max_dim + \c__td_choice_lab_dim }
+              < { ( \linewidth - \c__td_choice_gap_dim ) / 2 }
+              { \int_set:Nn \l__td_choice_cols_int { 2 } }
+              { \int_set:Nn \l__td_choice_cols_int { 1 } }
+          }
+        % 3 options never sit 2 + 1 awkwardly: keep them on one row or stacked
+        \int_compare:nNnT { \l__td_choice_n_int } = { 3 }
+          { \int_compare:nNnT { \l__td_choice_cols_int } = { 2 } { \int_set:Nn \l__td_choice_cols_int { 1 } } }
+      }
+    \int_compare:nNnT { \l__td_choice_cols_int } > { \l__td_choice_n_int }
+      { \int_set_eq:NN \l__td_choice_cols_int \l__td_choice_n_int }
+    \dim_set:Nn \l__td_choice_cell_dim
+      {
+        ( \linewidth - \c__td_choice_gap_dim * ( \l__td_choice_cols_int - 1 ) )
+        / \l__td_choice_cols_int
+      }
+    \tl_clear:N \l__td_choice_correct_tl
+    \par \addvspace{2pt}
+    % each row is an \hbox of exactly \linewidth: rows can never re-wrap
+    \int_zero:N \l__td_choice_idx_int
+    \tl_clear:N \l__td_choice_row_tl
+    \seq_map_inline:Nn \l__td_choice_seq
+      {
+        \int_incr:N \l__td_choice_idx_int
+        \__td_choice_parse:n {##1}
+        \bool_if:NT \l__td_choice_ok_bool
+          {
+            \tl_put_right:Ne \l__td_choice_correct_tl
+              {
+                \tl_if_empty:NF \l__td_choice_correct_tl { ,~ }
+                \int_to_Alph:n { \l__td_choice_idx_int }
+              }
+          }
+        \tl_put_right:Ne \l__td_choice_row_tl
+          {
+            \exp_not:N \__td_choice_cellx:nn
+              { \int_use:N \l__td_choice_idx_int } { \exp_not:n {##1} }
+          }
+        \bool_lazy_or:nnTF
+          { \int_compare_p:nNn { \int_mod:nn { \l__td_choice_idx_int } { \l__td_choice_cols_int } } = { 0 } }
+          { \int_compare_p:nNn { \l__td_choice_idx_int } = { \l__td_choice_n_int } }
+          {
+            \noindent \hbox_to_wd:nn { \linewidth } { \l__td_choice_row_tl \hfil }
+            \par
+            \tl_clear:N \l__td_choice_row_tl
+          }
+          { \tl_put_right:Nn \l__td_choice_row_tl { \hspace{\c__td_choice_gap_dim} } }
+      }
+    \tl_if_empty:NF \l__td_choice_correct_tl
+      { \td_add_answer:eV { \thetdq } \l__td_choice_correct_tl }
+  }
+  { }
+\cs_generate_variant:Nn \td_add_answer:nn { eV }
+
+% ---------------------------------------------------------------------
+%  blanks and gaps
+% ---------------------------------------------------------------------
+\cs_new_protected:Npn \__td_line:nn #1#2
+  {
+    \leavevmode
+    \hbox:n
+      {
+        \rlap{ \rule[-2.6pt]{#1}{0.5pt} }
+        \makebox[#1][c]{ \legacy_if:nT { TD@teacher } { \TD@fill{#2} } }
+      }
+  }
+\NewDocumentCommand \blank { O{22mm} m } { \__td_line:nn {#1} {#2} }
+\NewDocumentCommand \gap { O{26mm} m }
+  {
+    \refstepcounter{tdq}
+    \td_add_answer:en { \thetdq } {#2}
+    \mbox{ \TD@qnum{\thetdq} \, \__td_line:nn {#1} {#2} }
+  }
+
+% ---------------------------------------------------------------------
+%  answerlines
+% ---------------------------------------------------------------------
+\NewDocumentCommand \answerlines { O{\TD@linegap} m }
+  {
+    \par
+    \group_begin:
+    \int_step_inline:nn {#2}
+      {
+        \nointerlineskip
+        \vskip #1
+        \hbox_to_wd:nn { \linewidth }
+          {
+            \color{tdrule} \leaders \hrule height 0.4pt \hfill
+            \bool_lazy_and:nnT { \int_compare_p:nNn {#2} > { 9 } }
+                               { \int_compare_p:nNn { \int_mod:nn {##1} {5} } = { 0 } }
+              { \rlap { \hspace{1.5mm} \TD@numfamily\scriptsize \color{tdmeta} ##1 } }
+          }
+      }
+    \group_end:
+    \par \addvspace{4pt}
+  }
+
+% ---------------------------------------------------------------------
+%  \writeline[space above]{model answer}: one numbered full-width writing
+%  line (Write From Dictation, sentence rewrites). Number sits on the line.
+% ---------------------------------------------------------------------
+\NewDocumentCommand \writeline { O{8mm} m }
+  {
+    \par \addvspace{#1}
+    \refstepcounter{tdq}
+    \td_add_answer:en { \thetdq } {#2}
+    \noindent
+    \makebox[\TD@qindent][l]{ \TD@qnum{\thetdq} }
+    \legacy_if:nT { TD@teacher } { \rlap{ \hspace{1.5mm} \TD@fill{#2} } }
+    \textcolor{tdrule}{ \rule[-2.6pt]{ \dim_eval:n { \linewidth - \TD@qindent } }{0.4pt} }
+    \par
+  }
+
+% ---------------------------------------------------------------------
+%  truefalse / \statement{text}{answer}
+% ---------------------------------------------------------------------
+\tl_new:N \l__td_tf_kind_tl
+\dim_new:N \l__td_tf_box_dim
+\NewDocumentEnvironment{truefalse}{ O{TFNG} }
+  {
+    \tl_set:Nn \l__td_tf_kind_tl {#1}
+    \dim_set:Nn \l__td_tf_box_dim { 17mm }
+    \par \needspace{9\baselineskip}
+    \str_case:nn {#1}
+      {
+        {TFNG} { \TD@tflegend {TRUE} {FALSE} {NOT~GIVEN}
+                  {agrees~with~the~information}
+                  {contradicts~the~information}
+                  {there~is~no~information~on~this} }
+        {YNNG} { \TD@tflegend {YES} {NO} {NOT~GIVEN}
+                  {agrees~with~the~views~of~the~writer}
+                  {contradicts~the~views~of~the~writer}
+                  {it~is~impossible~to~say~what~the~writer~thinks~about~this} }
+        {TF}   { \dim_set:Nn \l__td_tf_box_dim { 12mm } }
+      }
+  }
+  { \par }
+\NewDocumentCommand \statement { m m }
+  {
+    \par \addvspace{5pt}
+    \refstepcounter{tdq}
+    \td_add_answer:en { \thetdq } {#2}
+    \noindent
+    \makebox[\TD@qindent][l]{ \TD@qnum{\thetdq} }
+    \parbox[t]{ \dim_eval:n { \linewidth - \TD@qindent - \l__td_tf_box_dim - 4mm } }
+      { \raggedright #1 \strut }
+    \hfill
+    \TD@answerbox { \l__td_tf_box_dim } {#2}
+    \par
+  }
+\ExplSyntaxOff
+
+\newcommand\TD@fill[1]{{\sffamily\itshape\color{tdaccent}#1}}
+\newcommand\TD@answerbox[2]{{\setlength\fboxsep{0pt}\setlength\fboxrule{0.5pt}%
+  \raisebox{-3.2pt}{\fbox{\makebox[#1][c]{\rule[-1.5mm]{0pt}{4.6mm}%
+    \ifTD@teacher{\TD@numfamily\scriptsize\color{tdaccent}#2}\fi}}}}}
+\newcommand\TD@tflegend[6]{%
+  \par\noindent
+  \begin{tabular}{@{}>{\TD@numfamily\small}l@{\hspace{4mm}}>{\small}l@{}}
+    #1 & if the statement #4\\
+    #2 & if the statement #5\\
+    #3 & if #6
+  \end{tabular}\par\addvspace{4pt}}
+
+% ---------------------------------------------------------------------
+%  wordbank{w1, w2, ...}  (PTE Reading FIB, drag-and-drop)
+% ---------------------------------------------------------------------
+\ExplSyntaxOn
+\NewDocumentCommand \wordbank { O{Word~bank} m }
+  {
+    \par \addvspace{6pt} \noindent
+    \group_begin:
+    \setlength\fboxsep{2.5mm} \setlength\fboxrule{0.5pt}
+    \fbox
+      {
+        \parbox{ \dim_eval:n { \linewidth - 5mm - 1pt } }
+          {
+            \raggedright \TD@label{#1} \par \vspace{2pt}
+            \clist_map_inline:nn {#2} { \mbox{ \sffamily ##1 } \hspace{6mm plus 2mm} \allowbreak }
+            \unskip
+          }
+      }
+    \group_end:
+    \par \addvspace{6pt}
+  }
+
+% ---------------------------------------------------------------------
+%  gapfill: roomier leading for handwriting
+% ---------------------------------------------------------------------
+\NewDocumentEnvironment{gapfill}{ }
+  { \par \group_begin: \linespread{1.32}\selectfont \setlength\parskip{6pt} }
+  { \par \group_end: \addvspace{4pt} }
+
+% ---------------------------------------------------------------------
+%  matching: \moption{text} ... \mitem{prompt}{letter}
+% ---------------------------------------------------------------------
+\seq_new:N \g__td_mopt_seq
+\seq_new:N \g__td_mitem_seq
+\int_new:N \l__td_m_idx_int
+\NewDocumentEnvironment{matching}{ O{List~of~options} +b }
+  {
+    \seq_gclear:N \g__td_mopt_seq
+    \seq_gclear:N \g__td_mitem_seq
+    \group_begin:
+      \cs_set:Npn \moption ##1 { \seq_gput_right:Nn \g__td_mopt_seq {##1} }
+      \cs_set:Npn \mitem ##1##2 { \seq_gput_right:Nn \g__td_mitem_seq { {##1} {##2} } }
+      #2
+    \group_end:
+    \par \addvspace{4pt} \noindent
+    \group_begin:
+    \setlength\fboxsep{2.5mm} \setlength\fboxrule{0.5pt}
+    \fbox
+      {
+        \parbox{ \dim_eval:n { \linewidth - 5mm - 1pt } }
+          {
+            \TD@label{#1} \par \vspace{2pt}
+            \int_zero:N \l__td_m_idx_int
+            \seq_map_inline:Nn \g__td_mopt_seq
+              {
+                \int_incr:N \l__td_m_idx_int
+                \par \noindent \hangindent=\TD@qindent \hangafter=1
+                \makebox[\TD@qindent][l]{ \TD@numfamily \int_to_Alph:n { \l__td_m_idx_int } }
+                ##1
+              }
+          }
+      }
+    \group_end:
+    \par \addvspace{4pt}
+    \seq_map_inline:Nn \g__td_mitem_seq { \__td_mitem_print:nn ##1 }
+  }
+  { }
+\cs_new_protected:Npn \__td_mitem_print:nn #1#2
+  {
+    \par \addvspace{5pt}
+    \refstepcounter{tdq}
+    \td_add_answer:en { \thetdq } {#2}
+    \noindent
+    \makebox[\TD@qindent][l]{ \TD@qnum{\thetdq} }
+    \parbox[t]{ \dim_eval:n { \linewidth - \TD@qindent - 12mm } } { \raggedright #1 \strut }
+    \hfill \TD@answerbox{8mm}{#2}
+    \par
+  }
+
+% ---------------------------------------------------------------------
+%  reorder: \para{correct position}{text}   (PTE Re-order Paragraphs)
+% ---------------------------------------------------------------------
+\prop_new:N \g__td_ro_prop
+\int_new:N \g__td_ro_idx_int
+\tl_new:N \l__td_ro_key_tl
+\newcommand\TD@letterbox[1]{{\setlength\fboxsep{0pt}\setlength\fboxrule{0.5pt}%
+  \fbox{\makebox[4.4mm]{\rule[-1.2mm]{0pt}{4.6mm}\TD@numfamily\small #1}}}}
+\NewDocumentEnvironment{reorder}{ +b }
+  {
+    \refstepcounter{tdq}
+    \prop_gclear:N \g__td_ro_prop
+    \int_gzero:N \g__td_ro_idx_int
+    \group_begin:
+    \cs_set_protected:Npn \para ##1##2
+      {
+        \int_gincr:N \g__td_ro_idx_int
+        \prop_gput:Nne \g__td_ro_prop {##1} { \int_to_Alph:n { \g__td_ro_idx_int } }
+        \par \addvspace{6pt} \noindent
+        \parbox[t]{\TD@qindent}{ \vspace{-3.4mm} \TD@letterbox{ \int_to_Alph:n { \g__td_ro_idx_int } } }
+        \parbox[t]{ \dim_eval:n { \linewidth - \TD@qindent } } { ##2 }
+        \par
+      }
+    #1
+    \group_end:
+    % key string
+    \tl_clear:N \l__td_ro_key_tl
+    \int_step_inline:nn { \g__td_ro_idx_int }
+      {
+        \tl_put_right:Ne \l__td_ro_key_tl
+          { \int_compare:nNnF {##1} = {1} { \exp_not:N \, \exp_not:N \TD@arrow \exp_not:N \, } \prop_item:Nn \g__td_ro_prop {##1} }
+      }
+    \td_add_answer:eV { \thetdq } \l__td_ro_key_tl
+    % answer row
+    \par \addvspace{8pt} \noindent
+    \makebox[\TD@qindent][l]{ \TD@qnum{\thetdq} }
+    { \sffamily\small Correct~order } \hspace{3mm}
+    \int_step_inline:nn { \g__td_ro_idx_int }
+      {
+        \int_compare:nNnF {##1} = {1} { \hspace{1.2mm} { \color{tdmeta}\TD@arrow } \hspace{1.2mm} }
+        \legacy_if:nTF { TD@teacher }
+          { \TD@letterbox{ \color{tdaccent} \prop_item:Nn \g__td_ro_prop {##1} } }
+          { \TD@letterbox{ \phantom{M} } }
+      }
+    \par \addvspace{4pt}
+  }
+  { }
+\cs_generate_variant:Nn \prop_gput:Nnn { Nne }
+
+% ---------------------------------------------------------------------
+%  cuecard (IELTS Speaking Part 2)
+% ---------------------------------------------------------------------
+\cs_new:Npn \TD@cuealign { \centering }
+\cs_new:Npn \TD@cuewidth { 0.78\linewidth }
+\tl_new:N \g__td_cue_end_tl
+\tl_new:N \g__td_cue_note_tl
+\NewDocumentEnvironment{cuecard}{ O{Speaking~Part~2} m +b }
+  {
+    \tl_gclear:N \g__td_cue_end_tl
+    \tl_gclear:N \g__td_cue_note_tl
+    \par \addvspace{8pt}
+    \group_begin:
+    \TD@cuealign
+    \setlength\fboxsep{4.5mm} \setlength\fboxrule{0.6pt}
+    \fbox
+      {
+        \parbox{ \TD@cuewidth }
+          {
+            \raggedright
+            \TD@kicker{#1} \par \vspace{3pt}
+            { \sffamily\bfseries\large #2 \par }
+            \vspace{4pt}
+            You~should~say:
+            \begin{itemize}[topsep=2pt, itemsep=1pt, leftmargin=1.3em]
+              \cs_set:Npn \andexplain ##1 { \tl_gset:Nn \g__td_cue_end_tl {##1} }
+              \cs_set:Npn \cuenote ##1 { \tl_gset:Nn \g__td_cue_note_tl {##1} }
+              #3
+            \end{itemize}
+            \tl_if_empty:NF \g__td_cue_end_tl { \g__td_cue_end_tl \par }
+            \tl_if_empty:NF \g__td_cue_note_tl
+              { \vspace{5pt} { \sffamily\footnotesize\color{tdmeta} \g__td_cue_note_tl \par } }
+          }
+      }
+    \par
+    \group_end:
+    \addvspace{8pt}
+  }
+  { }
+\ExplSyntaxOff
+\endinput

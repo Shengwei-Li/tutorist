@@ -1,0 +1,121 @@
+%% beamerthemetutorfocus.sty -- (c) Dark focus
+%% Near-black ground, quiet captions, content set large; one warm accent.
+%% Built for screen sharing: the frame title steps back, the sentence comes forward.
+%% XeLaTeX only. Fonts are loaded from ../fonts/ (relative to the compile dir).
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{beamerthemetutorfocus}[2026/10/26 v0.3 Dark focus tutor theme]
+
+\definecolor{tutorPaper}{HTML}{15181D}
+\definecolor{tutorInk}{HTML}{ECEAE5}
+\definecolor{tutorMuted}{HTML}{9AA1AB}
+\definecolor{tutorRule}{HTML}{353B44}
+\definecolor{tutorPanel}{HTML}{1D2128}
+\definecolor{tutorPast}{HTML}{6E7580}
+\definecolor{tutorAccent}{HTML}{E8B84E}
+\RequirePackage{tutorlesson}
+
+%% ---------- fonts ----------
+\usefonttheme{professionalfonts}
+\setsansfont{IBMPlexSans}[Path=fonts/, Extension=.otf,
+  UprightFont=*-Regular, ItalicFont=*-Italic,
+  BoldFont=*-SemiBold, BoldItalicFont=*-SemiBoldItalic]
+\newfontfamily\tutorPlexMedium{IBMPlexSans}[Path=fonts/, Extension=.otf, Ligatures=TeX,
+  UprightFont=*-Medium, ItalicFont=*-MediumItalic, BoldFont=*-SemiBold]
+\newfontfamily\tutorPlexTab{IBMPlexSans}[Path=fonts/, Extension=.otf, Ligatures=TeX,
+  UprightFont=*-Medium, BoldFont=*-SemiBold, Numbers={Lining,Monospaced}]
+\newfontfamily\tutorIPAFont{NotoSans}[Path=fonts/, Extension=.ttf,
+  UprightFont=*-Regular, ItalicFont=*-Italic, Scale=MatchLowercase]
+
+%% ---------- geometry ----------
+\setbeamersize{text margin left=15mm, text margin right=15mm}
+\beamer@centeredfalse
+\setlength\tutorLabelWidth{0pt}          % labels sit above, content uses full width
+\setlength\tutorGutter{7mm}
+\setlength\tutorTimerWidth{52mm}
+\setlength\tutorStepLabelWidth{24mm}
+\setlength\tutorObjIndent{10mm}
+\setlength\tutorItemSep{1.8ex}
+\setlength\tutorFlowGap{7mm}
+\setlength\tutorStepSep{1.1ex}
+
+%% ---------- hooks ----------
+\renewcommand\tutorLabelStyle{\fontsize{7.5}{9}\selectfont\tutorPlexMedium\addfontfeature{LetterSpace=8}}
+\renewcommand\tutorLabelCase[1]{\MakeUppercase{#1}}
+\renewcommand\tutorNumberStyle{\tutorPlexTab}
+\renewcommand\tutorOriginalStyle{\fontsize{12}{16}\selectfont}
+\renewcommand\tutorRevisedStyle{\fontsize{12}{16}\selectfont}
+\renewcommand\tutorWhyStyle{\fontsize{9}{11.2}\selectfont\color{tutorMuted}}
+\renewcommand\tutorCompareSep{\par\vspace{1.4ex}}
+\renewcommand\tutorWhyColumns{2}
+\renewcommand\tutorAsideStyle{\fontsize{9.5}{12.5}\selectfont\color{tutorMuted}}
+\renewcommand\tutorCueTaskStyle{\fontsize{15}{19}\selectfont\bfseries}
+\renewcommand\tutorPromptStyle{\fontsize{11.5}{15}\selectfont}
+\renewcommand\tutorTimerStyle{\fontsize{60}{60}\selectfont\tutorPlexTab}
+\renewcommand\tutorIPAStyle{\tutorIPAFont}
+\renewcommand\tutorKeyStyle{\fontsize{30}{37}\selectfont\tutorPlexMedium}
+\renewcommand\tutorStepStyle{\fontsize{11}{14.5}\selectfont}
+\renewcommand\tutorWrapStyle{\fontsize{10}{12.8}\selectfont}
+\renewcommand\tutorObjStyle{\fontsize{13}{17}\selectfont}
+\renewcommand\tutorErrMark[1]{\textsuperscript{\,\tutorPlexTab\color{tutorAccent}#1}}
+
+\tikzset{
+  tutor flow key/.style={inner sep=0pt, font=\fontsize{40}{40}\selectfont\tutorPlexMedium, text=tutorAccent},
+  tutor flow name/.style={inner sep=0pt, font=\fontsize{10.5}{13}\selectfont\bfseries, text=tutorInk, align=left},
+  tutor flow text/.style={inner sep=0pt, font=\fontsize{10}{13}\selectfont, text=tutorMuted, align=left},
+  tutor flow rule/.style={draw=tutorRule, line width=1pt},
+  tutor flow arrow/.style={draw=tutorMuted, line width=.6pt, -{Stealth[length=4pt,width=4pt]}},
+  tutor flow return/.style={draw=tutorRule, line width=.6pt, -{Stealth[length=4pt,width=4pt]}},
+  tutor flow return label/.style={inner sep=3pt, font=\tutorLabelStyle, text=tutorMuted, fill=tutorPaper},
+}
+\tcbset{tutor card/.style={enhanced, sharp corners, frame hidden, boxrule=0pt,
+  colback=tutorPanel, coltext=tutorInk, left=7mm, right=7mm, top=4mm, bottom=4mm}}
+
+%% ---------- frame title: a quiet caption ----------
+\setbeamerfont{frametitle}{size=\fontsize{11}{14}}
+\setbeamertemplate{frametitle}{%
+  \vspace*{2mm}%
+  {\usebeamerfont{frametitle}%
+   \ifstage{{\color{tutorAccent}\tutorPlexMedium\insertstage}\enspace{\color{tutorRule}/}\enspace}{}%
+   {\color{tutorMuted}\insertframetitle}\par}%
+  \vspace{3.5mm}}
+
+%% ---------- footline: thin progress track + number ----------
+\setbeamertemplate{footline}{%
+  \hbox to\paperwidth{\hskip15mm%
+    \begin{tikzpicture}[baseline=-.6ex]
+      \pgfmathsetlengthmacro\tw{\paperwidth-30mm-12mm}%
+      \fill[tutorRule] (0,-.3pt) rectangle (\tw,.3pt);
+      \ifnum\inserttotalframenumber>0
+        \pgfmathsetlengthmacro\pw{\tw*\insertframenumber/\inserttotalframenumber}%
+        \fill[tutorAccent] (0,-.6pt) rectangle (\pw,.6pt);
+      \fi
+    \end{tikzpicture}\hfill
+    {\fontsize{8}{10}\selectfont\tutorPlexTab\color{tutorMuted}\insertframenumber\,/\,\inserttotalframenumber}%
+    \hskip15mm}%
+  \vskip 5mm}
+
+%% ---------- title page ----------
+\setbeamertemplate{title page}{%
+  \begin{tikzpicture}[remember picture, overlay]
+    \node[anchor=south west, inner sep=0pt, text width=\paperwidth-40mm, align=left]
+      at ([xshift=15mm,yshift=40mm]current page.south west)
+      {{\tutorLabelStyle\color{tutorAccent}\MakeUppercase{\insertexamtag}}\par\vspace{4mm}
+       {\fontsize{28}{33}\selectfont\tutorPlexMedium\color{tutorInk}\inserttitle\par}
+       \vspace{3mm}{\fontsize{13}{17}\selectfont\color{tutorMuted}\insertsubtitle\par}};
+    \node[anchor=south west, inner sep=0pt, text width=\paperwidth-30mm, align=left]
+      at ([xshift=15mm,yshift=14mm]current page.south west)
+      {\fontsize{9.5}{12}\selectfont\color{tutorMuted}%
+       \insertlessonlabel\enspace{\color{tutorRule}/}\enspace\insertduration\enspace{\color{tutorRule}/}\enspace
+       \insertlearner\enspace{\color{tutorRule}/}\enspace\inserttarget\enspace{\color{tutorRule}/}\enspace\insertauthor};
+  \end{tikzpicture}}
+
+%% ---------- key idea ----------
+\defbeamertemplate*{tutor keyidea}{focus}{%
+  \begin{tikzpicture}[remember picture, overlay]
+    \node[anchor=west, inner sep=0pt, text width=\paperwidth-36mm, align=left]
+      (k) at ([xshift=15mm,yshift=2mm]current page.west) {\tutorKeyStyle\color{tutorInk}\insertkeytext};
+    \node[anchor=south west, inner sep=0pt] at ([yshift=6mm]k.north west)
+      {\tutorLabelStyle\color{tutorAccent}\MakeUppercase{\insertkeylabel}};
+  \end{tikzpicture}}
+
+\endinput
