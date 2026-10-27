@@ -6,18 +6,22 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { WorkspaceService } from '@tutordesk/core';
 import { writeAgentKit } from '@tutordesk/toolbox';
-import { ClaudeCodeSession, tutordeskMcpLaunch, type HarnessEvent } from '../src/index.js';
+import { createSession, tutordeskMcpLaunch, type HarnessEvent, type HarnessId } from '../src/index.js';
 
 /**
- * One small real turn with the local Claude Code on the user's subscription (appendix E.10).
- * Opt in: TUTORDESK_LIVE_HARNESS=1, after `pnpm mcp:build`. Model: TUTORDESK_LIVE_MODEL (default haiku).
+ * One small real turn with a local agent on the user's own subscription (appendix E.10). Opt in after
+ * `pnpm mcp:build`: TUTORDESK_LIVE_HARNESS=claude-code,codex (or 1 for Claude Code).
+ * Models default to the cheap ones; override with TUTORDESK_LIVE_MODEL.
  */
-const LIVE = process.env.TUTORDESK_LIVE_HARNESS === '1';
+const SELECTED = (process.env.TUTORDESK_LIVE_HARNESS ?? '').split(',').map((h) => (h === '1' ? 'claude-code' : h.trim()));
+const CHEAP: Record<HarnessId, string | undefined> = { 'claude-code': 'haiku', codex: 'gpt-6-luna', opencode: undefined };
 const SERVER = fileURLToPath(new URL('../../toolbox/dist/tutordesk-mcp.mjs', import.meta.url));
 const TEMPLATE = fileURLToPath(new URL('../../../workspace-template/', import.meta.url));
 
-describe.skipIf(!LIVE)('Claude Code live smoke', () => {
-  it('reads the workspace through the tutordesk tools in guarded mode', async () => {
+const HARNESSES = (['claude-code', 'codex', 'opencode'] as HarnessId[]).filter((h) => SELECTED.includes(h));
+
+describe.skipIf(!HARNESSES.length)('live harness smoke', () => {
+  it.each(HARNESSES.length ? HARNESSES : (['claude-code'] as HarnessId[]))('%s reads the workspace through the tutordesk tools in guarded mode', async (harness) => {
     expect(existsSync(SERVER), 'run pnpm mcp:build first').toBe(true);
     const tmp = await mkdtemp(path.join(os.tmpdir(), 'tutordesk-live-'));
     const ws = await WorkspaceService.init(path.join(tmp, 'ws'), TEMPLATE);
@@ -25,12 +29,12 @@ describe.skipIf(!LIVE)('Claude Code live smoke', () => {
     const student = await ws.createStudent({ name: 'Mina Park', exam: 'ielts-academic', targetOverall: 6.5, examDate: '2027-01-20' });
     const lesson = await ws.createLesson(student.id, { date: '2026-10-28', topic: 'Task 2 position', minutes: 60 });
 
-    const s = new ClaudeCodeSession({
+    const s = createSession(harness, {
       cwd: ws.root,
       mode: 'guarded',
-      model: process.env.TUTORDESK_LIVE_MODEL ?? 'haiku',
+      model: process.env.TUTORDESK_LIVE_MODEL ?? CHEAP[harness],
       instructions: `You are working on lesson "${lesson.id}" of student ${student.id}.`,
-      mcp: tutordeskMcpLaunch({ serverScript: SERVER, workspace: ws.root, by: 'claude-code', runtime: process.execPath }),
+      mcp: tutordeskMcpLaunch({ serverScript: SERVER, workspace: ws.root, by: harness, runtime: process.execPath }),
     });
     const events: HarnessEvent[] = [];
     try {

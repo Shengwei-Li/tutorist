@@ -70,7 +70,7 @@ describe('CodexSession (app-server protocol)', () => {
     expect(events[0]).toEqual({ type: 'session', nativeId: 'thr-1', model: 'gpt-fake' });
     expect(events).toContainEqual(expect.objectContaining({ type: 'tool', server: 'tutordesk', name: 'get_student_context', status: 'running' }));
     expect(events).toContainEqual(expect.objectContaining({ type: 'tool', name: 'get_student_context', status: 'ok', summary: 'Mina Park, IELTS' }));
-    expect(events.filter((e) => e.type === 'text').map((e) => (e as { delta: string }).delta).join('')).toBe('Hello tutor');
+    expect(events.filter((e) => e.type === 'text').map((e) => (e as { delta: string }).delta).join('')).toBe('Hello tutor\n\nDone.');
     expect(events).toContainEqual({ type: 'usage', inputTokens: 100, outputTokens: 20, cachedTokens: 50 });
     expect(events.at(-1)).toEqual({ type: 'turn_end', status: 'completed', error: undefined });
   });

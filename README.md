@@ -54,6 +54,12 @@ node packages/toolbox/dist/tutordesk-mcp.mjs --workspace <workspace> --write-kit
 claude mcp add tutordesk -- node <repo>/packages/toolbox/dist/tutordesk-mcp.mjs --workspace <workspace> --by claude-code
 ```
 
+One real turn per agent on your own subscription (cheap models by default: haiku, gpt-6-luna), after `pnpm mcp:build`:
+
+```bash
+TUTORDESK_LIVE_HARNESS=claude-code,codex pnpm vitest run packages/harness/test/live-harness.test.ts
+```
+
 For Codex, add `[mcp_servers.tutordesk]` with the same command and args to `~/.codex/config.toml`. Then start the agent in the workspace folder and ask it to prepare a lesson. Plan cards still need your approval in the app (or `--require-plan-approval false` while testing).
 
 ## Test

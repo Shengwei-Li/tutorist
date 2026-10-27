@@ -47,6 +47,7 @@ async function codex(msg) {
           notify('item/agentMessage/delta', { threadId: p.threadId, turnId: 'turn-1', itemId: 'm1', delta: 'Hello ' });
           notify('item/agentMessage/delta', { threadId: p.threadId, turnId: 'turn-1', itemId: 'm1', delta: 'tutor' });
           notify('item/completed', { item: { type: 'agentMessage', id: 'm1', text: 'Hello tutor' } });
+          notify('item/agentMessage/delta', { threadId: p.threadId, turnId: 'turn-1', itemId: 'm2', delta: 'Done.' });
           notify('thread/tokenUsage/updated', { threadId: p.threadId, turnId: 'turn-1', tokenUsage: { last: { inputTokens: 100, outputTokens: 20, cachedInputTokens: 50 } } });
         }
         notify('turn/completed', { threadId: p.threadId, turn: { ...turn, status: 'completed' } });

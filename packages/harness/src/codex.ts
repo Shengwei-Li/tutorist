@@ -43,6 +43,8 @@ export class CodexSession extends BaseSession {
   private child: ChildProcessWithoutNullStreams | undefined;
   private turnId: string | null = null;
   private streamed = new Set<string>();
+  /** Codex splits a reply into several messages (a preamble, then the answer); keep them apart. */
+  private lastTextItem: string | null = null;
   private usage: { inputTokens: number; outputTokens: number; cachedTokens: number } | null = null;
   private lastError: string | undefined;
 
@@ -89,6 +91,7 @@ export class CodexSession extends BaseSession {
     this.usage = null;
     this.lastError = undefined;
     this.streamed.clear();
+    this.lastTextItem = null;
     const items: unknown[] = [{ type: 'text', text: input.text, text_elements: [] }, ...(input.images ?? []).map((p) => ({ type: 'localImage', path: p }))];
     const r = await this.peer.request<{ turn: Turn }>('turn/start', { threadId: this.nativeId, input: items });
     this.turnId = r.turn.id;
@@ -99,7 +102,7 @@ export class CodexSession extends BaseSession {
     switch (method) {
       case 'item/agentMessage/delta':
         this.streamed.add(String(p.itemId));
-        this.emit({ type: 'text', delta: String(p.delta ?? '') });
+        this.text(String(p.itemId), String(p.delta ?? ''));
         return;
       case 'item/reasoning/summaryTextDelta':
         this.emit({ type: 'reasoning', delta: String(p.delta ?? '') });
@@ -137,6 +140,12 @@ export class CodexSession extends BaseSession {
     }
   }
 
+  private text(itemId: string, delta: string): void {
+    if (this.lastTextItem !== null && this.lastTextItem !== itemId) this.emit({ type: 'text', delta: '\n\n' });
+    this.lastTextItem = itemId;
+    this.emit({ type: 'text', delta });
+  }
+
   private itemStarted(item: CodexItem): void {
     if (item.type === 'mcpToolCall') {
       const it = item as Extract<CodexItem, { type: 'mcpToolCall' }>;
@@ -152,7 +161,7 @@ export class CodexSession extends BaseSession {
       case 'agentMessage': {
         const it = item as Extract<CodexItem, { type: 'agentMessage' }>;
         // Older servers send the message whole, without deltas.
-        if (!this.streamed.has(it.id) && it.text) this.emit({ type: 'text', delta: it.text });
+        if (!this.streamed.has(it.id) && it.text) this.text(it.id, it.text);
         return;
       }
       case 'mcpToolCall': {
