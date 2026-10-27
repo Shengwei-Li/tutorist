@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { copyFile, mkdir, readFile } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { app, dialog, ipcMain, shell, type WebContents } from 'electron';
 import { z } from 'zod';
@@ -8,6 +8,7 @@ import { ARTIFACT_SCHEMAS, ArtifactKind, LessonPlan, type ArtifactDoc } from '@t
 import { LessonPipeline, WritingReviewer, type PipelineEvent } from '@tutordesk/pipeline';
 import { ApiProvider, ClaudeCliProvider, DEFAULT_MODELS, type AgentProvider } from '@tutordesk/providers';
 import { TexEngine } from '@tutordesk/tex';
+import { writeAgentKit } from '@tutordesk/toolbox';
 import {
   BEAMER_THEMES,
   type BeamerTheme,
@@ -30,8 +31,20 @@ function templateRoot(): string {
 let workspace: WorkspaceService | undefined;
 async function ws(): Promise<WorkspaceService> {
   const { workspaceRoot } = await loadSettings();
-  if (!workspace || workspace.root !== workspaceRoot) workspace = await WorkspaceService.init(workspaceRoot, templateRoot());
+  if (!workspace || workspace.root !== workspaceRoot) {
+    workspace = await WorkspaceService.init(workspaceRoot, templateRoot());
+    // Agents read AGENTS.md and skills; the tutordesk MCP server reads toolbox.json (appendix E.4.3, E.7).
+    await writeAgentKit(workspace.root);
+    await writeToolboxConfig(workspace.root);
+  }
   return workspace;
+}
+
+async function writeToolboxConfig(root: string): Promise<void> {
+  const s = await loadSettings();
+  await mkdir(path.join(root, '.tutordesk'), { recursive: true });
+  await writeFile(path.join(root, '.tutordesk', 'toolbox.json'), `${JSON.stringify({ studio: s.studio, tutorName: s.tutorName, texBinDir: s.texBinDir }, null, 2)}
+`, 'utf8');
 }
 
 const claude = new ClaudeCliProvider({ auth: 'subscription' });
@@ -150,9 +163,11 @@ export function registerIpc(): void {
 
   // settings
   h('settings:get', () => loadSettings());
-  h('settings:update', (_e, patch: Parameters<typeof saveSettings>[0]) => {
+  h('settings:update', async (_e, patch: Parameters<typeof saveSettings>[0]) => {
     tex = undefined;
-    return saveSettings(patch);
+    const saved = await saveSettings(patch);
+    if (workspace && workspace.root === saved.workspaceRoot) await writeToolboxConfig(workspace.root);
+    return saved;
   });
   h('settings:chooseWorkspace', async () => {
     const r = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'] });

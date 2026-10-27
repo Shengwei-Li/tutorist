@@ -1,0 +1,27 @@
+{
+  "name": "@tutordesk/toolbox",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "bin": {
+    "tutordesk-mcp": "./dist/tutordesk-mcp.mjs"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p .",
+    "build": "node build.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "@tutordesk/core": "workspace:*",
+    "@tutordesk/pipeline": "workspace:*",
+    "@tutordesk/render": "workspace:*",
+    "@tutordesk/tex": "workspace:*",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  }
+}

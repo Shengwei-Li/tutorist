@@ -2,6 +2,7 @@
  * Ground-truth knowledge injected into prompts (SPEC §5.1, appendices A–C). The model must take exam
  * facts from here, never from memory. Descriptor summaries are our own paraphrases, not official text.
  */
+import type { ArtifactKind } from '@tutordesk/core/artifacts';
 import type { ExamId } from '@tutordesk/core';
 
 export const IELTS_FACTS = `IELTS facts (use only these; do not add rules):
@@ -105,3 +106,30 @@ export const ARTIFACT_RULES = {
 - Use an aside only when the student needs a next step; at most one aside per three frames, never repeating the slide.
 - Slides are English only: no Chinese or other glosses (the slide fonts cannot show them). Wrap-up words: plain word, IPA without slashes or markup, a short English gloss.`,
 } as const;
+
+/** What a plan card must satisfy; shared by the API prompt and the agent guidelines. */
+export function planRules(minutes: number | 'the lesson length'): string {
+  const m = typeof minutes === 'number' ? `${minutes} minutes` : minutes;
+  return `Plan card rules:
+- Run exactly ${m} in total (the stage minutes must add up to ${m}).
+- Focus on one core skill chosen from the student's evidence (open errors, tutor notes, recent reviews, the tutor's brief).
+- Open with a retrieval stage and include a check stage that tests every objective.
+- List the student's errors it targets, each with quoted evidence and its error code.
+- Assign each stage the outputs (script, handout, worksheet, deck) it uses.`;
+}
+
+/** Inline markup each artifact's text fields accept (rendered by packages/render/inline.ts). */
+export function markupRules(kind: ArtifactKind): string {
+  return `Text fields are plain prose with this markup only: *emphasis*, {{word|gloss}}, [[ipa:/…/]]${kind === 'worksheet' || kind === 'handout' ? ', [[gap:answer]] in gap-fill lines' : ''}${kind === 'deck' ? ', [[err:…]], [[fix:…]], [[sample:…]]' : ''}${kind === 'script' ? ', || for a pause in tutor talk' : ''}. Never write LaTeX.`;
+}
+
+export function writingReviewRules(task: 'task1' | 'task2'): string {
+  const first = task === 'task1' ? 'TA' : 'TR';
+  return `Review the essay the way an experienced examiner-trained tutor would.
+- Give a band range for each of ${first}, CC, LR and GRA (half-band steps; range at most one band wide). Match the paraphrased descriptors and quote the essay as evidence.
+- Annotate up to 20 specific problems. Copy the exact words from the essay in "quote" (enough words to be unique). Use the error codes below.
+- Pick the top three issues that cost the most marks, with a concrete action for the next essay.
+- Rewrite one weak paragraph or sentence group: keep the student's idea and raise it by half to one band only.
+- Suggest one focused task for the next essay.
+Be honest and encouraging; never promise a score.`;
+}

@@ -1,7 +1,7 @@
-# TutorDesk：英语家教 AI 备课工作台｜项目 Spec v0.1
+# TutorDesk：英语家教 AI 备课工作台｜项目 Spec v0.2
 
-> 2026-10-26 · 草案
-> 附录：[A 内容质量标准 / Golden Sample / 评测集](spec/quality-golden-sample.md) · [B 考试知识框架与错因体系](spec/exam-knowledge.md) · [C 课堂材料设计规则](spec/teaching-design.md) · [D LaTeX / Beamer 输出](spec/latex-output.md)
+> 2026-10-26 · 草案；2026-10-27 v0.2：改为"教学外壳 + 教学工具库，由 coding agent 干活"（附录 E）
+> 附录：[A 内容质量标准 / Golden Sample / 评测集](spec/quality-golden-sample.md) · [B 考试知识框架与错因体系](spec/exam-knowledge.md) · [C 课堂材料设计规则](spec/teaching-design.md) · [D LaTeX / Beamer 输出](spec/latex-output.md) · [E Agent Harness 架构](spec/agent-harness.md)
 > 原型：[prototypes/latex-docs](prototypes/latex-docs/)（讲义、练习卷、底稿）· [prototypes/beamer](prototypes/beamer/)（4 种幻灯片风格）
 > 产品名 TutorDesk 只是暂定的工作名。
 
@@ -34,15 +34,16 @@
 |---|---|---|
 | 产品形态 | **本地优先桌面应用（Electron）**，以后可以出 Web 版 | 需要调用本地的 Claude Code、Codex、OpenCode 子进程和文件系统；学生数据属于未成年人隐私 §7、§11 |
 | 数据真相 | **"每个学生一个文件夹"的 Markdown/JSON 工作区**，SQLite 只做索引 | 可以版本化、可以迁移、老师能直接改，三种 agent CLI 也能原生在里面工作 §3 |
-| AI 接入 | **两种连接模式，共用一套编排和质量回路**：**A. CLI 直连**：直接调用本机的 Claude Code / Codex / OpenCode CLI，走用户自己的官方订阅，给作者本人和懂技术的老师用；**B. API key**：自建轻量 harness，支持 Anthropic、OpenAI，以及 **OpenRouter** 等第三方或 OpenAI 兼容接口，是分发给海外老师时的默认模式 | 自用不花 API 费；分发版不碰订阅登录合规问题，非技术老师只需粘贴一个 OpenRouter key §7.2–7.3 |
+| **产品架构**（v0.2） | **教学外壳 + 教学工具库**：界面负责学生、课次、对话线程和老师闸门；工具库（`tutordesk` MCP 服务）负责数据、校验、排版和版本；**干活的是老师电脑上已登录的 Claude Code / Codex / OpenCode** | 不重复造 agent；agent 能读 PDF 和照片、多轮自我修正；质量门槛放在工具里，存不进去就是不合格 附录 E |
+| AI 接入 | **两种连接模式，共用一套工具库和质量门槛**：**A. CLI 直连**：直接调用本机的 Claude Code / Codex / OpenCode CLI，走用户自己的官方订阅，给作者本人和懂技术的老师用；**B. API key**：自建轻量 harness，支持 Anthropic、OpenAI，以及 **OpenRouter** 等第三方或 OpenAI 兼容接口，是分发给海外老师时的默认模式 | 自用不花 API 费；分发版不碰订阅登录合规问题，非技术老师只需粘贴一个 OpenRouter key §7.2–7.3 |
 | 首批考试 | **雅思 + PTE Academic** | 面向中国和澳美市场的主力考试 §6 |
 | 语言与市场 | 界面中英双语，**默认英文**；家长沟通走邮件和 PDF，不依赖微信 | 主要分发对象是澳洲和美国的家教 §1.1 |
-| 编排方式 | **流程由代码编排，单个步骤交给模型** | 确定性步骤直接调 API 拿结构化输出，开放性步骤交给 agent。这样可测、可控，成本也可预期 §7.1 |
+| 编排方式 | **agent 编排，工具把关**（v0.2）：工作流写成 skills，由 agent 执行；校验、检查、编译、老师闸门写在工具里。M1 的代码编排流水线保留为 API 模式的一键流程 | agent 在同一会话里按工具返回的问题修改，比我们重新拼 prompt 更准 §7.1、附录 E |
 | 产出格式 | **先输出 JSON（Zod schema），再用模板渲染** | 质量可评审、版式统一、可以二次编辑、PDF 输出稳定 §7.4 |
 | 排版 | **默认 LaTeX（XeLaTeX）**：讲义、练习卷（短题用双栏）、答案卷、底稿都走 LaTeX，课堂幻灯片用 **Beamer**（4 种自研主题，默认 tutorswiss）；HTML 只作为过渡和备用 | 排版质量最好；AI 只写语义宏，不碰样式 附录 D |
 | TeX 分发 | 作者本人用本机 TeX Live；分发版内置 **Tectonic** 和锁定版本的自托管 bundle，装好就能离线使用，老师不会意识到 TeX 的存在 | 附录 D.3 |
 | 教学设计 | 提取练习开场、样例逐步撤除、正反例对照、交错练习、间隔复现、聚焦纠错、幻灯片标题写成结论句 | 附录 C |
-| 质量保障 | 计划确认 → 生成 → 确定性校验 → 事实核验 → 答案复核 → LLM judge → 修订（最多 2 轮）→ 交老师 | 见附录 A |
+| 质量保障 | 计划确认 → 生成 → 工具内的硬门槛（schema、确定性检查、真实编译）→ 独立会话评审 → agent 在原会话修订 → 交老师 | 附录 A、E.5 |
 | 视觉 | 克制、专业、像"认真排版的教辅资料"；单一墨蓝强调色；不要"AI 味" | §8 |
 
 ---
@@ -281,13 +282,14 @@ TutorWorkspace/
 - **DOCX**：给需要再加工的老师。
 - **图片**：家长反馈卡、报告长图。
 
-### 4.10 Agent 面板
+### 4.10 对话线程与 harness（v0.2 重写，详见附录 E）
 
-- 工作台右栏。可以在"内置流程"（默认）和"自由 agent 会话"之间切换。后端下拉选项：Claude / Codex / OpenCode / API。
-- agent 运行时显示**步骤时间线**：读了哪些文件、调用了什么工具、写入了哪个产出物。原始日志（等宽字体）折叠在"详情"里。
-- **agent 写入的文件一律以"建议修改"的形式进入编辑器**，不直接覆盖，可以按变更集整组接受或回滚。
-- 首次运行时，明确列出 agent 可以读写的范围，例如"只读本学生资料，只写当前课次"。批量覆盖或删除需要二次确认。
-- 自由会话用于开放任务，例如"把这份剑 19 PDF 拆成题库条目并打标签"，或"对比这 5 篇作文，总结这个学生的进步"。
+- 工作台的中栏是**对话线程**，挂在学生、课次或作文上，每个对象各有自己的线程，关掉应用后可以接着聊。
+- 顶部切换 harness：Claude Code / Codex / OpenCode / API。线程中途也能换，新 harness 从文件里的状态接着干。
+- 快捷指令按钮（"备这节课""批改这篇"……）就是预设的消息；老师也可以直接打字，比如"把剑 19 这份 PDF 拆成题库条目"。
+- agent 的动作显示成时间线（读了什么、调用了哪个工具、保存了什么、检查出几处问题），原始参数折叠起来。
+- 需要老师同意的操作以内嵌卡片出现，只有"允许""拒绝"两个按钮。默认的 guarded 模式下，agent 只读工作区，写入只能经由 tutordesk 工具。
+- 老师闸门不在对话里：确认计划、给终评分、收错因，都在对应的界面上点。
 
 ---
 
@@ -322,17 +324,22 @@ TutorWorkspace/
 
 ## 7. AI 架构
 
-### 7.1 总原则：代码编排，模型执行
+### 7.1 总原则：agent 编排，工具把关（v0.2）
 
 ```
-PipelineOrchestrator（代码，阶段状态机）
-  ├─ 确定性步骤 → 直接调 API + 结构化输出（抽取、打分、分类、出题）
-  └─ 开放步骤   → Agent 会话（跨材料检索、整个文件夹的综合分析、批量任务、自由会话）
+老师（界面：线程、快捷指令、闸门）
+  └─ HarnessSession：Claude Code / Codex / OpenCode / API
+        └─ agent 按 skills 里的工作流行动，读工作区
+              └─ tutordesk 工具库：保存即校验 → 检查 → 编译 → git；不合格就返回问题清单
 ```
 
-这个产品的大部分步骤其实是**工作流**，不是开放式的 agent 任务。比如"按 rubric 给作文打分"，单次调用加 JSON schema，比交给 agent 更稳、更便宜、更可控。只有少数开放步骤才需要 agent 循环。
+v0.1 的判断是"大部分步骤是固定流程，单次调用 + schema 更稳"。实际做下来，固定流程的修订质量受限于我们拼的 prompt，agent 也被压扁成"填 JSON"。v0.2 改为：**流程交给 agent，门槛留在代码**。确定性的东西（schema、规则检查、排版、版本、闸门）仍然 100% 由代码执行，只是从"编排器的步骤"变成了"工具的前置条件"。
+
+M1 的 `LessonPipeline` 保留，作为 API 模式的"一键生成"，也用作评测基线。
 
 ### 7.2 Agent Provider 抽象层
+
+> v0.2：对话式交互改用附录 E.3 的 `HarnessSession`（Claude Code 走 Agent SDK、Codex 走 app-server、OpenCode 走 ACP）。下面的 `AgentProvider` 保留给 API 模式的一键流程和评测。
 
 ```ts
 export type ProviderId = 'claude-cli' | 'codex-cli' | 'opencode-cli' | 'api';
@@ -399,8 +406,8 @@ export interface AgentProvider {
 | 适配器 | 调用方式 | 要点 |
 |---|---|---|
 | **ClaudeCliProvider** | `claude -p --output-format stream-json --verbose`，用 `--resume <id>` 继续会话，再加上 `--allowedTools`、`--permission-mode`、`--append-system-prompt` | 读取解析 stream-json 事件，映射成 AgentEvent。也可以改用 Agent SDK：它会复用本机 CLI 的登录状态，事件类型更完整。两种写法二选一，接口一致 |
-| **CodexCliProvider** | `codex exec --json --sandbox workspace-write`（可加 `--output-schema`）；继续会话用 `codex exec resume` | **锁定版本**，Codex 发版很快 |
-| **OpenCodeCliProvider** | `opencode serve`，只监听 127.0.0.1 并设置密码，通过 HTTP + SSE 调用；简单任务用 `opencode run` | 权限请求转给 UI 处理 |
+| **CodexCliProvider** | v0.2 改为 `codex app-server`（JSON-RPC，支持审批、中断、线程恢复）；一次性任务仍可用 `codex exec --json` | **锁定版本**，Codex 发版很快 |
+| **OpenCodeCliProvider** | v0.2 改为 `opencode acp`（ACP over stdio），同一适配器可接其他 ACP agent | 权限请求转给 UI 处理 |
 
 - **结构化输出统一走"写文件 + 校验"的协议**：让 agent 把结果写到 `lessons/<id>/.out/<stage>.json`，编排器用 Zod 校验，不通过就把报错发回同一个会话，让它修正（最多 2 次）。三家 CLI 都能这么做，不依赖各自的 JSON 模式。
 - 启动时做健康检查：CLI 是否安装、版本号、是否已登录。界面上显示"已连接 Claude Code（订阅）"。
@@ -690,7 +697,9 @@ interface PipelineStage<I, O> {
 apps/desktop          Electron 主进程 + 渲染进程
 packages/core         领域模型、Zod schema、工作区服务
 packages/pipeline     编排器、各阶段、校验器、rubric
-packages/providers    claude-agent / api / codex / opencode 适配器
+packages/providers    一次性调用：claude -p / API（M1 流水线、评测用）
+packages/harness      对话会话：Claude Code（Agent SDK）/ Codex app-server / ACP / API（附录 E.3）
+packages/toolbox      tutordesk MCP 服务：教学工具库（附录 E.4）
 packages/render       模板、讲义组件、PDF 和 DOCX 导出
 packages/ui           设计系统
 packages/eval         评测集、judge、回归报告
@@ -729,8 +738,10 @@ workspace-template/   默认的 .claude/skills、agents、templates（包含考�
 |---|---|---|---|
 | **M0 地基** | 2 周 | monorepo、设计系统（中英 i18n）、Electron 外壳、工作区服务（文件 + git + Zod）、**ClaudeCliProvider**（作者自用，优先）和 **ApiProvider（Anthropic + OpenRouter）**、"写文件 + 校验"的结构化输出协议、成本账本 | 同一个结构化任务，在 CLI 模式和 OpenRouter 模式下都能产出通过 Zod 校验的 JSON |
 | **M1 写作闭环** | 5 周 | 学生档案、PDF 和图片导入、雅思写作批改视图、错因库、Task 2 课包（计划卡 → 底稿、讲义、练习卷、**Beamer 幻灯片**）、**LaTeX 模板正式化**（修复原型里的已知问题，补齐其余页面类型）、TexEngine（本机 TeX Live）、PDF 预览与框选修改、确定性校验、rubric 评审、P01–P03 eval | 用 golden 学生跑出的结果，rubric 平均分 ≥ 4.2，硬性门槛 100% 通过；作者本人用它实际备完 5 节课 |
+| **M1.5 Harness**（v0.2 插入） | 2 周 | 附录 E.11 的 H1–H6：ArtifactStudio、tutordesk MCP 工具库、AGENTS.md 与 skills 生成、HarnessSession 及 Claude Code / Codex / ACP / API 四个适配器 | 用订阅里的 Claude Code 和 Codex 各跑通一次"备课 → 老师确认 → 生成讲义并通过检查" |
+| **M1.6 外壳界面** | 2 周 | 线程、harness 切换、审批卡片、工具时间线、快捷指令；先出设计稿评审 | 作者本人用它备完 5 节课 |
 | **M2 PTE 与全科** | 4 周 | **PTE 插件**（题型 → 单项贡献矩阵、形式规则校验、PTE 专有错因、WFD / SWT / Essay 批改）、口语转写与流利度分析（暂不做发音）、阅读听力错因、大纲生成、反馈与阶段报告、事实核验和答案复核；PTE 的 eval 用例 | 全部 eval 用例通过；一位真实家教试用 2 周 |
-| **M3 多后端与资产** | 3 周 | CodexCliProvider 和 OpenCodeCliProvider；API 模式的模型预设档位（每个档位都过 eval）；资料库 FTS；老师模板导入；批量 agent 任务；版本对比；上课模式 | 不同后端在核心任务上的 eval 分差 ≤ 0.3 |
+| **M3 多后端与资产** | 3 周 | （harness 适配器已提前到 M1.5）各 harness 的 eval 对比；API 模式的模型预设档位（每个档位都过 eval）；资料库 FTS；老师模板导入；批量 agent 任务；版本对比；上课模式 | 不同后端在核心任务上的 eval 分差 ≤ 0.3 |
 | **M4 海外分发** | 按需 | 3 步新手向导（含 OpenRouter key 图文和视频教程）、英文文案打磨、安装包（Win / Mac）签名、自动更新、iPad 上课模式（PWA）；评估模式 C（托管额度） | 一位不懂 AI 的澳洲或美国家教，能在 10 分钟内不靠帮助完成第一份课包 |
 | M4 补充 | — | 内置 Tectonic 加自托管 bundle 及预热缓存、Win/Mac 签名和实测、中文字体换成思源字体子集 | 在一台干净的 Windows 机器上，安装后离线也能导出 PDF |
 | 后续 | — | 发音评测（Azure / Speechace 等，PTE 口语的关键）、ElevenLabs TTS 生成听力和示范音频 | — |
@@ -741,6 +752,8 @@ workspace-template/   默认的 .claude/skills、agents、templates（包含考�
 
 - **M0 已完成**：monorepo、设计系统、Electron 外壳、工作区服务、ClaudeCliProvider、本机 TeX 编译。
 - **M1 已完成（真实模型待验证）**：ApiProvider（OpenRouter / Anthropic / OpenAI / 兼容接口，key 加密存储）；产出物 JSON schema 与 LaTeX 渲染器（讲义、练习卷、底稿、Beamer）；课包流水线（计划卡 → 老师确认 → 生成 → 确定性检查 → 实编译 → rubric 评审 → 最多 2 轮修订）；写作批改（照片识别 → 老师确认 → 四项区间 + 定位批注 → 老师终评 → 错因库）；工作台与批改界面；评测集 `pnpm eval`（P01/P02/P03/P16 + 范文批改）。
+- **2026-10-27 方向调整**：改为"教学外壳 + 教学工具库，由 coding agent 干活"（附录 E），插入 M1.5 / M1.6。
+- **M1.5 进行中（2026-10-27）**：H1 `ArtifactStudio` + `packages/toolbox`（18 个工具、MCP 服务、单文件打包）、H2 AGENTS.md / skills 生成、H3–H5 `packages/harness`（Claude Code / Codex app-server / ACP 适配器、权限模式、线程存储）已写完，类型检查通过；测试已写好但**尚未运行**；尚未用真实 harness 验证；H6 API 会话和 H7 界面未开始。
 - **尚未完成**：用真实模型跑评测并调提示词；PDF 框选修改（目前是整份文档按指令修改）；PDF 原件导入解析（目前只支持文本材料）；Tectonic 分发。
 
 ## 13. 风险与未决问题
@@ -758,4 +771,5 @@ workspace-template/   默认的 .claude/skills、agents、templates（包含考�
 | PTE 口语缺少发音评测 | 先说清楚"发音未评估"；PTE 口语只做流利度和内容；发音引擎排进"后续" |
 | **已定**（2026-10-26） | 首批考试是雅思和 PTE；两种连接模式（CLI 直连自用，API / OpenRouter 分发）；海外市场优先，默认英文；发音评测暂缓 |
 | **已定**（2026-10-26，第二轮） | 只做雅思和 PTE；默认用 LaTeX 排版，幻灯片用 Beamer；分发时内置 Tectonic；**默认 Beamer 主题为 tutorswiss**，tutorbook、tutorsheet、tutorfocus 作为可选主题 |
+| **已定**（2026-10-27） | 主路径改为调用本机 Claude Code / Codex / OpenCode（附录 E）；API 模式只给不会用 coding agent 的老师，默认模型保持 Gemini Flash；界面后续单独设计 |
 | **待你决定** | ① 是否需要模式 C（托管额度，让老师完全不碰 key）；② 要不要 iPad 上课模式；③ 产品对外的正式名称 |
