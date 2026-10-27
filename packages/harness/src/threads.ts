@@ -41,6 +41,9 @@ export type ThreadRecord = z.infer<typeof ThreadRecord>;
 
 const MAX_ENTRIES = 400;
 
+/** The last pending write per thread file. */
+const WRITES = new Map<string, Promise<void>>();
+
 export class ThreadStore {
   private readonly dir: string;
 
@@ -81,13 +84,27 @@ export class ThreadStore {
     return out.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
 
-  async update(id: string, change: (t: ThreadRecord) => ThreadRecord): Promise<ThreadRecord> {
-    const t = await this.get(id);
-    if (!t) throw new Error(`No thread ${id}`);
-    const next = ThreadRecord.parse({ ...change(t), updatedAt: new Date().toISOString() });
-    next.entries = next.entries.slice(-MAX_ENTRIES);
-    await writeJson(this.file(id), next);
-    return next;
+  /** Read-modify-write, one at a time per thread file (across store instances), so no change is lost. */
+  update(id: string, change: (t: ThreadRecord) => ThreadRecord): Promise<ThreadRecord> {
+    const file = this.file(id);
+    const run = async () => {
+      const t = await this.get(id);
+      if (!t) throw new Error(`No thread ${id}`);
+      const next = ThreadRecord.parse({ ...change(t), updatedAt: new Date().toISOString() });
+      next.entries = next.entries.slice(-MAX_ENTRIES);
+      await writeJson(file, next);
+      return next;
+    };
+    const result = (WRITES.get(file) ?? Promise.resolve()).then(run, run);
+    const tail = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    WRITES.set(file, tail);
+    void tail.then(() => {
+      if (WRITES.get(file) === tail) WRITES.delete(file);
+    });
+    return result;
   }
 
   append(id: string, ...entries: ThreadEntry[]): Promise<ThreadRecord> {

@@ -6,7 +6,7 @@ import { z } from 'zod';
 import { readJson, resolveInside, writeFileAtomic, writeJson } from '@tutordesk/core';
 import { workspaceReadTools } from '@tutordesk/providers';
 import type { Toolbox } from '@tutordesk/toolbox';
-import { BaseSession } from './session-base.js';
+import { BaseSession, editableByAgent } from './session-base.js';
 import type { SessionStart, UserTurn } from './types.js';
 
 const MEDIA: Record<string, string> = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp' };
@@ -80,16 +80,17 @@ export class ApiSession extends BaseSession {
         description: 'Create or replace a Markdown file inside students/ (notes, plans in prose). Structured lesson files go through the TutorDesk tools instead.',
         inputSchema: z.object({ path: z.string(), content: z.string() }),
         execute: async ({ path: p, content }: { path: string; content: string }, { toolCallId }: { toolCallId: string }) => {
-          const rel = p.replace(/\\/g, '/');
-          if (!rel.startsWith('students/') || !rel.endsWith('.md')) {
+          // Resolve first, then check: "students/../AGENTS.md" must not pass as a student file.
+          const abs = await resolveInside(this.opts.cwd, p).catch(() => null);
+          const rel = abs ? path.relative(this.opts.cwd, abs).replace(/\\/g, '/') : '';
+          if (!abs || !editableByAgent(rel)) {
             this.failedCalls.add(toolCallId);
-            return 'Refused: only Markdown files inside students/ can be written.';
+            return 'Refused: only Markdown files inside a student folder can be written (not notes.md; use append_note).';
           }
           if ((await this.authorize('edit', `Write ${rel}`)) === 'deny') {
             this.failedCalls.add(toolCallId);
             return 'The tutor declined this change.';
           }
-          const abs = await resolveInside(this.opts.cwd, rel);
           await mkdir(path.dirname(abs), { recursive: true });
           await writeFileAtomic(abs, content);
           this.emit({ type: 'file', path: rel, op: 'edit' });
@@ -105,7 +106,8 @@ export class ApiSession extends BaseSession {
     for (const img of input.images ?? []) {
       const mediaType = MEDIA[path.extname(img).toLowerCase()];
       if (!mediaType) throw new Error(`Unsupported image type: ${img}`);
-      content.push({ type: 'image', image: await readFile(img), mediaType });
+      // Base64 rather than a Buffer, so the saved conversation can be resumed from JSON.
+      content.push({ type: 'image', image: (await readFile(img)).toString('base64'), mediaType });
     }
     const userMessage: ModelMessage = { role: 'user', content };
     const abort = new AbortController();
@@ -114,6 +116,9 @@ export class ApiSession extends BaseSession {
     const system = [this.deps.system, this.opts.instructions].filter(Boolean).join('\n\n');
     let error: string | undefined;
     let usd = 0;
+    // Messages of the steps that finished, kept even if a later step fails or is stopped: the tools
+    // in them (save_plan, save_artifact) already changed the workspace.
+    const finished: ModelMessage[] = [];
 
     const result = streamText({
       model: this.deps.model,
@@ -122,6 +127,10 @@ export class ApiSession extends BaseSession {
       tools: this.tools(),
       stopWhen: stepCountIs(this.deps.maxSteps ?? 40),
       abortSignal: abort.signal,
+      onStepEnd: (step) => {
+        // Each step reports only its own messages (assistant, then tool results).
+        finished.push(...(step.response.messages as ModelMessage[]));
+      },
     });
     try {
       for await (const part of result.fullStream) {
@@ -165,15 +174,12 @@ export class ApiSession extends BaseSession {
       this.abort = null;
     }
 
-    if (abort.signal.aborted) {
-      // Keep the question so the conversation still reads correctly; drop the half answer.
-      this.messages.push(userMessage);
-      await this.save();
-      this.endTurn('interrupted');
-      return;
-    }
-    if (error) {
-      this.endTurn('failed', error);
+    if (abort.signal.aborted || error) {
+      // Keep the question and the finished steps so the conversation still reads correctly; drop the half step.
+      this.messages.push(userMessage, ...finished);
+      await this.save().catch(() => {});
+      if (abort.signal.aborted) this.endTurn('interrupted');
+      else this.endTurn('failed', error);
       return;
     }
     this.messages.push(userMessage, ...((await result.responseMessages) as ModelMessage[]));
@@ -193,12 +199,14 @@ export class ApiSession extends BaseSession {
   }
 
   async interrupt(): Promise<void> {
+    this.cancelPending();
     this.abort?.abort();
   }
 
   async close(): Promise<void> {
     this.abort?.abort();
     this.endTurn('interrupted');
+    this.markDead('Closed.');
   }
 }
 

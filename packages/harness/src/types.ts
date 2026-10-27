@@ -61,6 +61,10 @@ export interface HarnessSession {
   readonly harness: HarnessId;
   /** Known after start (Codex, ACP) or after the first turn begins (Claude Code). */
   readonly nativeId: string | null;
+  /** The agent process has gone; a new session is needed for the next message. */
+  readonly dead: boolean;
+  /** A turn has completed in this session (so the native id it resumed is valid). */
+  readonly proven: boolean;
   start(): Promise<void>;
   /** One turn. Events stream until a `turn_end`; only one turn runs at a time. */
   send(input: UserTurn): AsyncIterable<HarnessEvent>;

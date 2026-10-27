@@ -14,15 +14,18 @@ import type {
 } from '@agentclientprotocol/sdk';
 import { which, type ResolvedCommand } from '@tutordesk/core';
 import { JsonRpcPeer, RpcError } from './jsonrpc.js';
-import { BaseSession, splitToolName, type ActionKind, stopProcess } from './session-base.js';
+import { BaseSession, agentEnv, splitToolName, type ActionKind, stopProcess } from './session-base.js';
 import type { PermissionMode, SessionStart, UserTurn } from './types.js';
 
 export const ACP_PROTOCOL_VERSION = 1;
 
 const MEDIA: Record<string, string> = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp' };
 
-function classify(kind: ToolKind | null | undefined, title: string): ActionKind {
-  if (splitToolName(title).server === 'tutordesk') return 'toolbox';
+/**
+ * The tool's kind decides first: a title is free text the agent can shape, so a shell command whose
+ * title happens to start with "tutordesk_" must still count as a command.
+ */
+export function classify(kind: ToolKind | null | undefined, title: string): ActionKind {
   switch (kind) {
     case 'read':
     case 'search':
@@ -37,7 +40,7 @@ function classify(kind: ToolKind | null | undefined, title: string): ActionKind 
     case 'fetch':
       return 'network';
     default:
-      return 'other';
+      return /^tutordesk_[a-z_]+$/.test(title) || /^mcp__tutordesk__[a-z_]+$/.test(title) ? 'toolbox' : 'other';
   }
 }
 
@@ -91,16 +94,25 @@ export class AcpSession extends BaseSession {
   async start(): Promise<void> {
     const exe = this.agent.executable ?? (await which(this.agent.program, this.opts.env));
     if (!exe) throw new Error(`${this.agent.program} is not installed.`);
-    const env = { ...process.env, ...this.opts.env, ...this.agent.env?.(this.opts.mode) };
+    const env = { ...agentEnv(this.opts.env), ...this.agent.env?.(this.opts.mode) };
     const child = spawn(exe.command, [...exe.prefixArgs, ...this.agent.args], { cwd: this.opts.cwd, env, windowsHide: true });
     this.child = child;
+    try {
+      await this.handshake(child);
+    } catch (e) {
+      await stopProcess(child);
+      throw e;
+    }
+  }
+
+  private async handshake(child: ChildProcessWithoutNullStreams): Promise<void> {
     const peer = new JsonRpcPeer(child, { header: true });
     this.peer = peer;
     peer.onNotification = (method, params) => {
       if (method === 'session/update') this.onUpdate(params as SessionNotification);
     };
     peer.onRequest = (method, params) => this.onAgentRequest(method, params);
-    peer.onClose = (reason) => this.endTurn('failed', `${this.agent.program} ${reason}`);
+    peer.onClose = (reason) => this.markDead(`${this.agent.program} ${reason}`);
 
     this.caps = await peer.request<InitializeResponse>('initialize', {
       protocolVersion: ACP_PROTOCOL_VERSION,
@@ -119,6 +131,7 @@ export class AcpSession extends BaseSession {
         this.loading = false;
       }
       this.nativeId = this.opts.resume;
+      this.resumed = true;
     } else {
       const r = await peer.request<NewSessionResponse>('session/new', { cwd: this.opts.cwd, mcpServers });
       this.nativeId = r.sessionId;
@@ -129,7 +142,7 @@ export class AcpSession extends BaseSession {
     if (!this.peer || !this.nativeId) throw new Error('Session not started');
     const prompt: ContentBlock[] = [];
     // ACP has no system prompt; the thread's instructions ride on its first message.
-    if (this.opts.instructions && !this.opts.resume && !this.sentFirst) prompt.push({ type: 'text', text: `${this.opts.instructions}\n\n---\n\n` });
+    if (this.opts.instructions && !this.resumed && !this.sentFirst) prompt.push({ type: 'text', text: `${this.opts.instructions}\n\n---\n\n` });
     this.sentFirst = true;
     prompt.push({ type: 'text', text: input.text });
     for (const img of input.images ?? []) {
@@ -144,6 +157,8 @@ export class AcpSession extends BaseSession {
     else this.endTurn('completed', r.stopReason === 'end_turn' ? undefined : `Stopped: ${r.stopReason}`);
   }
   private sentFirst = false;
+  /** The agent loaded an earlier session (it may not support loading, and then starts afresh). */
+  private resumed = false;
 
   private onUpdate(n: SessionNotification): void {
     if (this.loading || n.sessionId !== this.nativeId) return;
@@ -192,11 +207,14 @@ export class AcpSession extends BaseSession {
 
   async interrupt(): Promise<void> {
     if (!this.peer || !this.nativeId || !this.busy) return;
+    // ACP: after cancelling, the client answers any permission request still open.
+    this.cancelPending();
     this.peer.notify('session/cancel', { sessionId: this.nativeId });
   }
 
   async close(): Promise<void> {
     this.endTurn('interrupted');
+    this.markDead('Closed.');
     if (this.child) await stopProcess(this.child);
   }
 }

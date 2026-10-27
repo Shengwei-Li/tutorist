@@ -124,6 +124,44 @@ describe('ApiSession (H6)', () => {
     expect(saved.messages).toHaveLength(1);
   });
 
+  it('checks the resolved path, so students/../ cannot reach the agent instructions or notes.md', async () => {
+    const tries = ['students/../AGENTS.md', `students/${studentId}/../../CLAUDE.md`, `students/${studentId}/notes.md`, '/etc/x.md'];
+    const model = scripted([[...tries.map((p, i) => call(`w${i}`, 'write_markdown', { path: p, content: 'pwned' })), finish('tool-calls')], [...say('ok'), finish('stop')]]);
+    const s = session(model, 'full');
+    await s.start();
+    const events = await collect(s, 'Try');
+    expect(events.filter((e) => e.type === 'tool' && e.name === 'write_markdown' && e.status === 'error')).toHaveLength(tries.length);
+    expect(await readFile(path.join(ws.root, 'AGENTS.md'), 'utf8').catch(() => '')).not.toContain('pwned');
+    expect(await readFile(path.join(ws.root, 'students', studentId, 'notes.md'), 'utf8')).not.toContain('pwned');
+  });
+
+  it('declines a waiting approval when the tutor stops the turn', async () => {
+    const model = scripted([[call('w1', 'write_markdown', { path: `students/${studentId}/x.md`, content: 'x' }), finish('tool-calls')], [...say('ok'), finish('stop')]]);
+    const s = session(model, 'collaborate');
+    await s.start();
+    const events = await collect(s, 'Write', (e) => {
+      if (e.type === 'approval') void s.interrupt();
+    });
+    expect(events.at(-1)).toMatchObject({ type: 'turn_end', status: 'interrupted' });
+    expect(existsSync(path.join(ws.root, 'students', studentId, 'x.md'))).toBe(false);
+  });
+
+  it('keeps finished tool steps in the history when a later step fails', async () => {
+    let n = 0;
+    const model = new MockLanguageModelV4({
+      doStream: async () => {
+        if (n === 0 || n === 1) return stream([call(`c${n++}`, 'get_student_context', { studentId }), finish('tool-calls')]);
+        throw new Error('503 upstream');
+      },
+    });
+    const s = session(model);
+    await s.start();
+    const events = await collect(s, 'Plan it');
+    expect(events.at(-1)).toMatchObject({ type: 'turn_end', status: 'failed' });
+    const saved = JSON.parse(await readFile(path.join(ws.root, '.tutordesk', 'api-sessions', `${s.nativeId}.json`), 'utf8')) as { messages: { role: string }[] };
+    expect(saved.messages.map((m) => m.role)).toEqual(['user', 'assistant', 'tool', 'assistant', 'tool']);
+  });
+
   it('reports model errors as a failed turn', async () => {
     const model = new MockLanguageModelV4({
       doStream: async () => {

@@ -2,7 +2,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import path from 'node:path';
 import { which, type ResolvedCommand } from '@tutordesk/core';
 import { JsonRpcPeer } from './jsonrpc.js';
-import { BaseSession, stopProcess } from './session-base.js';
+import { BaseSession, agentEnv, editableByAgent, stopProcess } from './session-base.js';
 import type { PermissionMode, SessionStart, UserTurn } from './types.js';
 
 /**
@@ -47,6 +47,8 @@ export class CodexSession extends BaseSession {
   private lastTextItem: string | null = null;
   private usage: { inputTokens: number; outputTokens: number; cachedTokens: number } | null = null;
   private lastError: string | undefined;
+  /** Paths each pending fileChange item will touch, so its approval can name them. */
+  private changes = new Map<string, string[]>();
 
   constructor(
     opts: SessionStart,
@@ -58,13 +60,22 @@ export class CodexSession extends BaseSession {
   async start(): Promise<void> {
     const exe = this.extra.executable ?? (await which('codex', this.opts.env));
     if (!exe) throw new Error('Codex is not installed.');
-    const child = spawn(exe.command, [...exe.prefixArgs, 'app-server'], { cwd: this.opts.cwd, env: { ...process.env, ...this.opts.env }, windowsHide: true });
+    const child = spawn(exe.command, [...exe.prefixArgs, 'app-server'], { cwd: this.opts.cwd, env: agentEnv(this.opts.env), windowsHide: true });
     this.child = child;
+    try {
+      await this.handshake(child);
+    } catch (e) {
+      await stopProcess(child);
+      throw e;
+    }
+  }
+
+  private async handshake(child: ChildProcessWithoutNullStreams): Promise<void> {
     const peer = new JsonRpcPeer(child, { header: false });
     this.peer = peer;
     peer.onNotification = (method, params) => this.onNotification(method, params);
     peer.onRequest = (method, params) => this.onServerRequest(method, params);
-    peer.onClose = (reason) => this.endTurn('failed', `Codex ${reason}`);
+    peer.onClose = (reason) => this.markDead(`Codex ${reason}`);
 
     await peer.request('initialize', { clientInfo: { name: 'tutordesk', title: 'TutorDesk', version: this.extra.version ?? '0.1.0' }, capabilities: null });
     peer.notify('initialized');
@@ -153,6 +164,9 @@ export class CodexSession extends BaseSession {
     } else if (item.type === 'commandExecution') {
       const it = item as Extract<CodexItem, { type: 'commandExecution' }>;
       this.emit({ type: 'tool', id: it.id, name: 'shell', input: { command: it.command }, status: 'running' });
+    } else if (item.type === 'fileChange') {
+      const it = item as Extract<CodexItem, { type: 'fileChange' }>;
+      this.changes.set(it.id, it.changes.map((c) => c.path));
     }
   }
 
@@ -177,6 +191,7 @@ export class CodexSession extends BaseSession {
       }
       case 'fileChange': {
         const it = item as Extract<CodexItem, { type: 'fileChange' }>;
+        this.changes.delete(it.id);
         if (it.status !== 'completed') return;
         for (const c of it.changes) {
           this.emit({ type: 'file', path: path.relative(this.opts.cwd, path.resolve(this.opts.cwd, c.path)).replace(/\\/g, '/'), op: c.kind.type === 'add' ? 'create' : c.kind.type === 'delete' ? 'delete' : 'edit' });
@@ -196,7 +211,7 @@ export class CodexSession extends BaseSession {
         return { decision: d === 'allow' ? 'accept' : 'decline' };
       }
       case 'item/fileChange/requestApproval': {
-        const d = await this.authorize('edit', 'Edit files', (p.reason as string | null) ?? undefined);
+        const d = await this.approveEdit(this.changes.get(String(p.itemId)), (p.reason as string | null) ?? undefined);
         return { decision: d === 'allow' ? 'accept' : 'decline' };
       }
       case 'item/permissions/requestApproval': {
@@ -211,10 +226,15 @@ export class CodexSession extends BaseSession {
       }
       case 'item/tool/requestUserInput':
         return { answers: {} };
-      case 'execCommandApproval':
-      case 'applyPatchApproval': {
+      case 'execCommandApproval': {
         // Legacy v1 approvals.
-        const d = await this.authorize(method === 'execCommandApproval' ? 'command' : 'edit', method === 'execCommandApproval' ? 'Run a command' : 'Edit files');
+        const command = Array.isArray(p.command) ? p.command.join(' ') : String(p.command ?? 'a command');
+        const d = await this.authorize('command', `Run: ${command.slice(0, 200)}`);
+        return { decision: d === 'allow' ? 'approved' : 'denied' };
+      }
+      case 'applyPatchApproval': {
+        const files = p.fileChanges && typeof p.fileChanges === 'object' ? Object.keys(p.fileChanges) : undefined;
+        const d = await this.approveEdit(files);
         return { decision: d === 'allow' ? 'approved' : 'denied' };
       }
       default:
@@ -222,13 +242,25 @@ export class CodexSession extends BaseSession {
     }
   }
 
+  /**
+   * Collaborate mode lets the agent edit Markdown in student folders and nothing else (as with Claude
+   * Code): structured files such as lesson.json go through the tools, which keep the tutor's gates.
+   */
+  private async approveEdit(files: string[] | undefined, reason?: string): Promise<'allow' | 'deny'> {
+    const rel = (files ?? []).map((f) => path.relative(this.opts.cwd, path.resolve(this.opts.cwd, f)).replace(/\\/g, '/'));
+    if (this.opts.mode !== 'full' && (!rel.length || !rel.every(editableByAgent))) return 'deny';
+    return this.authorize('edit', `Edit ${rel.join(', ').slice(0, 200)}`, reason);
+  }
+
   async interrupt(): Promise<void> {
+    this.cancelPending();
     if (!this.peer || !this.nativeId || !this.turnId) return;
     await this.peer.request('turn/interrupt', { threadId: this.nativeId, turnId: this.turnId });
   }
 
   async close(): Promise<void> {
     this.endTurn('interrupted');
+    this.markDead('Closed.');
     if (this.child) await stopProcess(this.child);
   }
 }

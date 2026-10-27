@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { app, BrowserWindow, nativeTheme, shell } from 'electron';
 import { closeThreads, registerIpc } from './services.js';
 import { runSmoke } from './smoke.js';
@@ -33,13 +34,27 @@ function createWindow(): BrowserWindow {
     if (/^https?:/.test(url)) void shell.openExternal(url);
     return { action: 'deny' };
   });
+  // The window only ever shows the app itself: the dev server in development, index.html when built.
+  const indexFile = path.join(import.meta.dirname, '../renderer/index.html');
   win.webContents.on('will-navigate', (e, url) => {
-    if (!url.startsWith('http://localhost') && !url.startsWith('file:')) e.preventDefault();
+    if (!isAppPage(url, indexFile)) e.preventDefault();
   });
 
   if (process.env.ELECTRON_RENDERER_URL) void win.loadURL(process.env.ELECTRON_RENDERER_URL);
-  else void win.loadFile(path.join(import.meta.dirname, '../renderer/index.html'));
+  else void win.loadFile(indexFile);
   return win;
+}
+
+function isAppPage(url: string, indexFile: string): boolean {
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return false;
+  }
+  const dev = process.env.ELECTRON_RENDERER_URL;
+  if (dev && !app.isPackaged) return u.origin === new URL(dev).origin;
+  return u.protocol === 'file:' && path.resolve(fileURLToPath(u)) === path.resolve(indexFile);
 }
 
 app.whenReady().then(() => {
@@ -51,8 +66,15 @@ app.whenReady().then(() => {
   });
 });
 
-// Agent processes must not outlive the app.
-app.on('before-quit', () => void closeThreads());
+// Agent processes must not outlive the app: wait for them (and the turn's saved entries) before quitting.
+let threadsClosed = false;
+app.on('before-quit', (e) => {
+  if (threadsClosed) return;
+  e.preventDefault();
+  threadsClosed = true;
+  const timeout = new Promise<void>((resolve) => setTimeout(resolve, 8000));
+  void Promise.race([closeThreads().catch(() => {}), timeout]).finally(() => app.quit());
+});
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();

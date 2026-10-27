@@ -36,12 +36,11 @@ async function main() {
   const cfg = JSON.parse(await readFile(path.join(root, '.tutordesk', 'toolbox.json'), 'utf8').catch(() => '{}')) as {
     studio?: { name: string; monogram?: string };
     tutorName?: string;
-    texBinDir?: string;
   };
   const studio = cfg.studio ?? { name: 'Private Tutoring' };
   const box = new Toolbox({
     ws: new WorkspaceService(root),
-    tex: new TexEngine({ binDir: values['tex-bin'] ?? cfg.texBinDir, maxConcurrent: 1 }),
+    tex: new TexEngine({ binDir: values['tex-bin'], maxConcurrent: 1 }),
     templateDir: path.join(root, 'templates', 'tex'),
     studio,
     tutorName: cfg.tutorName || studio.name,

@@ -62,10 +62,12 @@ export function tutordeskMcpLaunch(o: {
   runtime?: string;
   electron?: boolean;
   requirePlanApproval?: boolean;
+  /** TeX binaries folder. Passed by the app only, never read from the workspace, which agents can write. */
+  texBin?: string;
 }): McpLaunch {
   return {
     command: o.runtime ?? process.execPath,
-    args: [o.serverScript, '--workspace', o.workspace, '--by', o.by, ...(o.requirePlanApproval === false ? ['--require-plan-approval', 'false'] : [])],
+    args: [o.serverScript, '--workspace', o.workspace, '--by', o.by, ...(o.requirePlanApproval === false ? ['--require-plan-approval', 'false'] : []), ...(o.texBin ? ['--tex-bin', o.texBin] : [])],
     env: o.electron ? { ELECTRON_RUN_AS_NODE: '1' } : {},
   };
 }

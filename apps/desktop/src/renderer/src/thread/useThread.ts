@@ -51,6 +51,14 @@ export function useThread(subject: ThreadSubject, onSaved?: () => void) {
 
   useEffect(() => {
     let live = true;
+    // A new subject starts clean: nothing from the previous thread may be shown or sent to.
+    setView(null);
+    setBlocks([]);
+    setRunning(false);
+    setStartedAt(null);
+    setPending([]);
+    setUsd(0);
+    setError(null);
     void window.tutordesk.threads.open(JSON.parse(key) as ThreadSubject).then((v) => {
       if (!live) return;
       setView(v);

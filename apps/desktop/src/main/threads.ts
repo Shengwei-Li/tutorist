@@ -36,7 +36,8 @@ function mcpServerScript(): string {
 }
 
 interface Live {
-  session: HarnessSession;
+  /** null while the agent is starting; `running` is already true then, so nothing else races in. */
+  session: HarnessSession | null;
   agent: AgentId;
   mode: AgentMode;
   running: boolean;
@@ -51,6 +52,8 @@ interface Live {
  */
 export class ThreadService {
   private live = new Map<string, Live>();
+  /** open() calls in flight per subject, so a double mount does not create two threads. */
+  private opening = new Map<string, Promise<ThreadView>>();
 
   constructor(private readonly deps: ThreadDeps) {}
 
@@ -71,7 +74,16 @@ export class ThreadService {
     };
   }
 
-  async open(subject: ThreadSubject): Promise<ThreadView> {
+  open(subject: ThreadSubject): Promise<ThreadView> {
+    const key = JSON.stringify(subject);
+    const inFlight = this.opening.get(key);
+    if (inFlight) return inFlight;
+    const p = this.openNow(subject).finally(() => this.opening.delete(key));
+    this.opening.set(key, p);
+    return p;
+  }
+
+  private async openNow(subject: ThreadSubject): Promise<ThreadView> {
     const store = await this.store();
     const filter = subject.type === 'lesson' ? { studentId: subject.studentId, lessonId: subject.lessonId } : { studentId: subject.studentId };
     const existing = (await store.list(filter)).find((t) => JSON.stringify(t.subject) === JSON.stringify(subject));
@@ -87,7 +99,7 @@ export class ThreadService {
     if (l?.running) throw new Error('Wait for the agent to finish, or stop it, before switching.');
     if (l) {
       this.live.delete(threadId);
-      await l.session.close();
+      await l.session?.close();
     }
     const t = await store.update(threadId, (x) => ({
       ...x,
@@ -98,13 +110,36 @@ export class ThreadService {
     return this.view(t);
   }
 
+  /**
+   * Start the thread's agent, continuing its native session when there is one. If that session cannot
+   * be continued (deleted, expired, from another install), start a fresh one and say so in the thread.
+   */
   private async startSession(t: ThreadRecord): Promise<HarnessSession> {
+    const resume = t.sessions[t.harness];
+    try {
+      return await this.startWith(t, resume);
+    } catch (err) {
+      if (!resume) throw err;
+      await this.forgetSession(t.id, t.harness, `Could not continue the earlier ${labelOf(t.harness)} conversation (${(err as Error).message}); starting a new one.`);
+      return this.startWith(t, undefined);
+    }
+  }
+
+  private async forgetSession(threadId: string, agent: AgentId, note: string): Promise<void> {
+    const store = await this.store();
+    await store.update(threadId, (x) => {
+      const sessions = { ...x.sessions };
+      delete sessions[agent];
+      return { ...x, sessions, entries: [...x.entries, { role: 'system', text: note, at: now() }] };
+    });
+  }
+
+  private async startWith(t: ThreadRecord, resume: string | undefined): Promise<HarnessSession> {
     const w = await this.deps.ws();
     const s = await loadSettings();
     const subject = t.subject as ThreadSubject;
     const profile = await w.readProfile(subject.studentId).catch(() => null);
     const instructions = subjectInstructions(subject, { student: profile?.ok ? profile.value.name : undefined });
-    const resume = t.sessions[t.harness];
     const base = { cwd: w.root, mode: t.mode, resume, instructions, mcp: { command: '', args: [] as string[] } };
 
     let session: HarnessSession;
@@ -125,10 +160,16 @@ export class ThreadService {
       }
     } else {
       // Electron's own binary runs the MCP server as plain Node, so tutors need no Node install.
-      const mcp = tutordeskMcpLaunch({ serverScript: mcpServerScript(), workspace: w.root, by: t.harness, runtime: process.execPath, electron: true });
+      const mcp = tutordeskMcpLaunch({ serverScript: mcpServerScript(), workspace: w.root, by: t.harness, runtime: process.execPath, electron: true, texBin: s.texBinDir || undefined });
       session = createSession(t.harness, { ...base, mcp });
     }
-    await session.start();
+    try {
+      await session.start();
+    } catch (err) {
+      // A half-started agent must not stay behind as a process.
+      await session.close().catch(() => {});
+      throw err;
+    }
     return session;
   }
 
@@ -139,17 +180,25 @@ export class ThreadService {
     let l = this.live.get(threadId);
     if (l?.running) throw new Error('The agent is still working on the previous message.');
     if (!l) {
-      const session = await this.startSession(t);
-      l = { session, agent: t.harness, mode: t.mode, running: false, pending: new Map(), sender };
+      // Claim the thread before the first await: a second send or a configure now sees it running.
+      l = { session: null, agent: t.harness, mode: t.mode, running: true, pending: new Map(), sender };
       this.live.set(threadId, l);
     }
     l.sender = sender;
     l.running = true;
-    await store.append(threadId, { role: 'tutor', text, at: now() });
-    void this.pump(threadId, l, text);
+    let session: HarnessSession;
+    try {
+      await store.append(threadId, { role: 'tutor', text, at: now() });
+      session = l.session ??= await this.startSession(t);
+    } catch (err) {
+      if (!l.session) this.live.delete(threadId);
+      l.running = false;
+      throw err;
+    }
+    void this.pump(threadId, l, session, text);
   }
 
-  private async pump(threadId: string, l: Live, text: string): Promise<void> {
+  private async pump(threadId: string, l: Live, session: HarnessSession, text: string): Promise<void> {
     const store = await this.store();
     const emit = (e: ThreadEvent) => {
       if (l.sender && !l.sender.isDestroyed()) l.sender.send('thread:event', threadId, e);
@@ -157,15 +206,18 @@ export class ThreadService {
     let reply = '';
     const inputs = new Map<string, unknown>();
     const done: ThreadEntry[] = [];
+    // The window hears turn_end only after the entries are saved and the thread is free again, so a
+    // quick follow-up message neither races these writes nor finds the thread still busy.
+    let end: Extract<ThreadEvent, { type: 'turn_end' }> = { type: 'turn_end', status: 'failed', error: 'The agent stopped without finishing.' };
     const flushReply = () => {
       if (reply.trim()) done.push({ role: 'agent', text: reply.trim(), at: now(), by: l.agent });
       reply = '';
     };
     try {
-      for await (const e of l.session.send({ text })) {
-        if (e.type === 'session' && l.session.nativeId) {
-          const id = l.session.nativeId;
-          await store.update(threadId, (x) => ({ ...x, sessions: { ...x.sessions, [l.agent]: id } }));
+      for await (const e of session.send({ text })) {
+        if (e.type === 'session' && session.nativeId) {
+          const id = session.nativeId;
+          await store.update(threadId, (x) => ({ ...x, sessions: { ...x.sessions, [l.agent]: id } })).catch(() => {});
         }
         if (e.type === 'text') reply += e.delta;
         if (e.type === 'tool' && e.status === 'running') inputs.set(e.id, e.input);
@@ -178,6 +230,8 @@ export class ThreadService {
           flushReply();
           if (e.status === 'failed') done.push({ role: 'system', text: e.error ? `Stopped: ${e.error}` : 'The agent stopped with an error.', at: now() });
           if (e.status === 'interrupted') done.push({ role: 'system', text: 'Stopped.', at: now() });
+          end = e;
+          continue;
         }
         emit(e);
       }
@@ -185,27 +239,45 @@ export class ThreadService {
       flushReply();
       const message = (err as Error).message;
       done.push({ role: 'system', text: `Stopped: ${message}`, at: now() });
-      emit({ type: 'turn_end', status: 'failed', error: message });
+      end = { type: 'turn_end', status: 'failed', error: message };
+      // The loop broke early: the agent must not be left mid-turn.
+      await session.interrupt().catch(() => {});
     } finally {
-      l.running = false;
       l.pending.clear();
-      if (l.session.nativeId) {
-        const id = l.session.nativeId;
-        await store.update(threadId, (x) => ({ ...x, sessions: { ...x.sessions, [l.agent]: id } }));
+      // A dead agent is dropped and the next message starts a new one. If it never completed a turn,
+      // the native session it resumed is not worth resuming again.
+      const dead = session.dead;
+      const forget = dead && !session.proven;
+      if (dead) {
+        if (this.live.get(threadId) === l) this.live.delete(threadId);
+        await session.close().catch(() => {});
+        done.push({ role: 'system', text: `${labelOf(l.agent)} has stopped; your next message starts it again.`, at: now() });
       }
-      if (done.length) await store.append(threadId, ...done);
+      const nativeId = session.nativeId;
+      try {
+        await store.update(threadId, (x) => {
+          const sessions = { ...x.sessions };
+          if (forget) delete sessions[l.agent];
+          else if (nativeId) sessions[l.agent] = nativeId;
+          return { ...x, sessions, entries: [...x.entries, ...done] };
+        });
+      } catch {
+        // The thread file is gone or unwritable; the live events already reached the window.
+      }
+      l.running = false;
+      emit(end);
     }
   }
 
   respond(threadId: string, requestId: string, decision: 'allow' | 'deny'): void {
     const l = this.live.get(threadId);
-    if (!l) return;
+    if (!l?.session) return;
     l.pending.delete(requestId);
     l.session.respond(requestId, decision);
   }
 
   async interrupt(threadId: string): Promise<void> {
-    await this.live.get(threadId)?.session.interrupt();
+    await this.live.get(threadId)?.session?.interrupt();
   }
 
   async attach(studentId: string): Promise<string[]> {
@@ -239,7 +311,7 @@ export class ThreadService {
   }
 
   async closeAll(): Promise<void> {
-    await Promise.all([...this.live.values()].map((l) => l.session.close().catch(() => {})));
+    await Promise.all([...this.live.values()].map((l) => l.session?.close().catch(() => {})));
     this.live.clear();
   }
 }

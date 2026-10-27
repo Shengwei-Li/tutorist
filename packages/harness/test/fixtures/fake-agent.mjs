@@ -28,6 +28,7 @@ async function codex(msg) {
       return {};
     case 'thread/start':
     case 'thread/resume':
+      if (p.threadId === 'thr-gone') throw new Error('no rollout found for thread id thr-gone');
       return { thread: { id: p.threadId ?? 'thr-1' }, model: 'gpt-fake' };
     case 'turn/start': {
       const text = p.input[0].text;
@@ -36,6 +37,15 @@ async function codex(msg) {
         if (text.includes('hang')) {
           await new Promise((r) => (hang = r));
           notify('turn/completed', { threadId: p.threadId, turn: { ...turn, status: 'interrupted' } });
+          return;
+        }
+        if (text.includes('crash')) process.exit(3);
+        if (text.startsWith('patch ')) {
+          const file = text.slice('patch '.length);
+          notify('item/started', { item: { type: 'fileChange', id: 'f1', changes: [{ path: file, kind: { type: 'update' } }], status: 'inProgress' } });
+          const r = await ask('item/fileChange/requestApproval', { threadId: p.threadId, turnId: 'turn-1', itemId: 'f1', reason: null });
+          notify('item/agentMessage/delta', { threadId: p.threadId, turnId: 'turn-1', itemId: 'm1', delta: `decision=${r.decision}` });
+          notify('turn/completed', { threadId: p.threadId, turn: { ...turn, status: 'completed' } });
           return;
         }
         if (text.includes('approve')) {
@@ -90,7 +100,8 @@ async function agent(msg) {
           ],
         });
         update({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `picked=${r.outcome.optionId ?? r.outcome.outcome}` } });
-        return { stopReason: 'end_turn' };
+        // "wait-approve": the tutor cancels instead of answering; the agent then reports the cancel.
+        return { stopReason: text.includes('wait-approve') ? 'cancelled' : 'end_turn' };
       }
       update({ sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: 'thinking' } });
       update({ sessionUpdate: 'tool_call', toolCallId: 't1', title: 'tutordesk_save_plan', kind: 'other', status: 'pending', rawInput: { studentId: 'mina' } });

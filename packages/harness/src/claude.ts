@@ -1,8 +1,9 @@
+import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { query, type CanUseTool, type Query, type SDKMessage, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import { which } from '@tutordesk/core';
-import { AsyncQueue, BaseSession, GUARDED_DENIAL, splitToolName, type ActionKind } from './session-base.js';
+import { AsyncQueue, BaseSession, GUARDED_DENIAL, editableByAgent, splitToolName, type ActionKind } from './session-base.js';
 import type { SessionStart, UserTurn } from './types.js';
 
 /** Variables that make a nested CLI think it runs inside another Claude Code session. */
@@ -31,6 +32,23 @@ export async function resolveClaudeExecutable(env?: NodeJS.ProcessEnv): Promise<
   // npm shims resolve to `node cli.js`; the SDK runs a .js path with node itself.
   const script = cmd.prefixArgs.find((a) => /\.(c|m)?js$/i.test(a));
   return script ?? cmd.command;
+}
+
+/** Project settings may carry hooks or allow rules; only a fully trusted session may load them. */
+const PROJECT_SETTINGS = ['.claude/settings.json', '.claude/settings.local.json'];
+
+/** The path a read tool targets, if it names one. */
+function readTarget(input: Record<string, unknown>): string | undefined {
+  for (const k of ['file_path', 'notebook_path', 'path']) if (typeof input[k] === 'string' && input[k]) return input[k] as string;
+  const pattern = input.pattern;
+  if (typeof pattern === 'string' && path.isAbsolute(pattern)) return pattern.replace(/[*?[{].*$/, '') || pattern;
+  return undefined;
+}
+
+/** True when `file` resolves inside `root` (the workspace). */
+export function insideRoot(root: string, file: string): boolean {
+  const rel = path.relative(path.resolve(root), path.resolve(root, file));
+  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
 }
 
 function summarise(content: unknown): string | undefined {
@@ -72,6 +90,10 @@ export class ClaudeCodeSession extends BaseSession {
 
   async start(): Promise<void> {
     const mode = this.opts.mode;
+    if (mode !== 'full') {
+      const found = PROJECT_SETTINGS.filter((f) => existsSync(path.join(this.opts.cwd, f)));
+      if (found.length) throw new Error(`The workspace has ${found.join(' and ')}, which could change what Claude Code is allowed to do. Remove it, or use Full access.`);
+    }
     const executable = this.extra.executable ?? (await resolveClaudeExecutable(this.opts.env));
     this.q = query({
       prompt: this.input,
@@ -87,7 +109,8 @@ export class ClaudeCodeSession extends BaseSession {
         settingSources: ['project'],
         systemPrompt: { type: 'preset', preset: 'claude_code', append: this.opts.instructions },
         mcpServers: { tutordesk: { type: 'stdio', command: this.opts.mcp.command, args: this.opts.mcp.args, env: this.opts.mcp.env, timeout: 300_000 } },
-        allowedTools: ['Read', 'Glob', 'Grep', 'mcp__tutordesk'],
+        // Reads inside the workspace need no permission; reads elsewhere reach canUseTool and are refused.
+        allowedTools: ['mcp__tutordesk'],
         disallowedTools: mode === 'guarded' ? [...EDIT_TOOLS, ...COMMAND_TOOLS, ...NETWORK_TOOLS] : [...NETWORK_TOOLS],
         permissionMode: mode === 'full' ? 'bypassPermissions' : 'default',
         allowDangerouslySkipPermissions: mode === 'full',
@@ -99,12 +122,16 @@ export class ClaudeCodeSession extends BaseSession {
 
   private canUseTool: CanUseTool = async (toolName, input) => {
     const kind = classify(toolName);
+    if (kind === 'read') {
+      const target = readTarget(input);
+      if (target && !insideRoot(this.opts.cwd, target)) return { behavior: 'deny', message: 'Only files inside the workspace can be read.' };
+    }
     if (kind === 'edit' && this.opts.mode === 'collaborate') {
       // Collaborate mode: Markdown in student folders only; structured files go through the tools.
       const file = String(input.file_path ?? input.notebook_path ?? '');
       const rel = path.relative(this.opts.cwd, path.resolve(this.opts.cwd, file)).replace(/\\/g, '/');
-      if (!rel.startsWith('students/') || !rel.endsWith('.md')) {
-        return { behavior: 'deny', message: 'Only Markdown files inside students/ may be edited directly; use the tutordesk tools for everything else.' };
+      if (!editableByAgent(rel)) {
+        return { behavior: 'deny', message: 'Only Markdown files inside a student folder (not notes.md) may be edited directly; use the tutordesk tools for everything else.' };
       }
     }
     const title = kind === 'command' ? `Run: ${String(input.command ?? toolName).slice(0, 200)}` : kind === 'edit' ? `Edit ${String(input.file_path ?? '')}` : `Use ${toolName}`;
@@ -127,9 +154,10 @@ export class ClaudeCodeSession extends BaseSession {
   private async pump(q: Query): Promise<void> {
     try {
       for await (const m of q) this.map(m);
-      this.endTurn('failed', 'Claude Code stopped.');
+      this.markDead('Claude Code stopped.');
     } catch (e) {
-      this.endTurn(this.interrupted ? 'interrupted' : 'failed', (e as Error).message);
+      if (this.interrupted && this.busy) this.endTurn('interrupted');
+      this.markDead((e as Error).message);
     }
   }
 
@@ -187,8 +215,9 @@ export class ClaudeCodeSession extends BaseSession {
   }
 
   async interrupt(): Promise<void> {
-    if (!this.busy || !this.q) return;
+    if (!this.busy || !this.q || this.dead) return;
     this.interrupted = true;
+    this.cancelPending();
     await this.q.interrupt();
   }
 
@@ -196,5 +225,6 @@ export class ClaudeCodeSession extends BaseSession {
     this.input.end();
     this.abort.abort();
     this.endTurn('interrupted');
+    this.markDead('Closed.');
   }
 }

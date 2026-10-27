@@ -65,6 +65,26 @@ export function splitToolName(raw: string): { server?: string; name: string } {
   return { name: raw };
 }
 
+/**
+ * What an agent may edit directly outside full mode: Markdown inside a student's folder, except the
+ * tutor's own notes.md (agents add notes through append_note). `rel` is relative to the workspace.
+ */
+export function editableByAgent(rel: string): boolean {
+  const p = rel.replace(/\\/g, '/');
+  if (p.split('/').some((seg) => seg === '..' || seg === '.')) return false;
+  return /^students\/[^/]+\/.+\.md$/i.test(p) && !/^students\/[^/]+\/notes\.md$/i.test(p);
+}
+
+/** Keys TutorDesk itself uses for API mode; agent processes have their own sign-in and never need them. */
+const TUTORDESK_KEYS = ['TUTORDESK_API_KEY', 'OPENROUTER_API_KEY'];
+
+/** The environment for an agent process: the user's own, minus TutorDesk's API keys. */
+export function agentEnv(extra?: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const env = { ...process.env, ...extra };
+  for (const k of TUTORDESK_KEYS) delete env[k];
+  return env;
+}
+
 export const GUARDED_DENIAL = 'Not allowed in this workspace: read files freely, but save lesson documents, reviews, materials and notes with the tutordesk tools.';
 
 /**
@@ -77,6 +97,8 @@ export abstract class BaseSession implements HarnessSession {
   private turn: AsyncQueue<HarnessEvent> | null = null;
   private pending = new Map<string, (d: ApprovalDecision) => void>();
   private announced = false;
+  private everCompleted = false;
+  private isDead = false;
   protected model: string | undefined;
 
   constructor(protected readonly opts: SessionStart) {
@@ -92,7 +114,24 @@ export abstract class BaseSession implements HarnessSession {
     return this.turn !== null;
   }
 
+  /** The agent process is gone (crashed, exited, closed): this session cannot take another turn. */
+  get dead(): boolean {
+    return this.isDead;
+  }
+
+  /** At least one turn finished normally, so a resumed native session id is known to be good. */
+  get proven(): boolean {
+    return this.everCompleted;
+  }
+
+  /** Subclasses call this when the agent can no longer answer; the current turn fails. */
+  protected markDead(reason: string): void {
+    this.isDead = true;
+    this.endTurn('failed', reason);
+  }
+
   send(input: UserTurn): AsyncIterable<HarnessEvent> {
+    if (this.isDead) throw new Error('The agent has stopped; start the conversation again.');
     if (this.turn) throw new Error('The agent is still working on the previous message.');
     const q = new AsyncQueue<HarnessEvent>();
     this.turn = q;
@@ -118,11 +157,17 @@ export abstract class BaseSession implements HarnessSession {
     const q = this.turn;
     if (!q) return;
     this.turn = null;
+    if (status === 'completed') this.everCompleted = true;
     // An approval nobody answered must not hang the agent after its turn is over.
-    for (const resolve of this.pending.values()) resolve('deny');
-    this.pending.clear();
+    this.cancelPending();
     q.push({ type: 'turn_end', status, error });
     q.end();
+  }
+
+  /** Decline every approval still waiting; interrupting must not leave the agent blocked on one. */
+  protected cancelPending(): void {
+    for (const resolve of this.pending.values()) resolve('deny');
+    this.pending.clear();
   }
 
   respond(requestId: string, decision: ApprovalDecision): void {

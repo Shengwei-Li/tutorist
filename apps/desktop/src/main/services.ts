@@ -44,7 +44,7 @@ async function ws(): Promise<WorkspaceService> {
 async function writeToolboxConfig(root: string): Promise<void> {
   const s = await loadSettings();
   await mkdir(path.join(root, '.tutordesk'), { recursive: true });
-  await writeFile(path.join(root, '.tutordesk', 'toolbox.json'), `${JSON.stringify({ studio: s.studio, tutorName: s.tutorName, texBinDir: s.texBinDir }, null, 2)}
+  await writeFile(path.join(root, '.tutordesk', 'toolbox.json'), `${JSON.stringify({ studio: s.studio, tutorName: s.tutorName }, null, 2)}
 `, 'utf8');
 }
 
