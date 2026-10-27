@@ -18,8 +18,8 @@ export type ThreadSubject = z.infer<typeof ThreadSubject>;
 
 export const ThreadEntry = z.discriminatedUnion('role', [
   z.object({ role: z.literal('tutor'), text: z.string(), at: z.string() }),
-  z.object({ role: z.literal('agent'), text: z.string(), at: z.string() }),
-  z.object({ role: z.literal('tool'), name: z.string(), ok: z.boolean(), summary: z.string().optional(), at: z.string() }),
+  z.object({ role: z.literal('agent'), text: z.string(), at: z.string(), by: z.string().optional() }),
+  z.object({ role: z.literal('tool'), name: z.string(), ok: z.boolean(), summary: z.string().optional(), target: z.string().optional(), at: z.string() }),
   z.object({ role: z.literal('system'), text: z.string(), at: z.string() }),
 ]);
 export type ThreadEntry = z.infer<typeof ThreadEntry>;
@@ -29,7 +29,7 @@ export const ThreadRecord = z.object({
   id: z.string(),
   title: z.string(),
   subject: ThreadSubject,
-  harness: z.enum(['claude-code', 'codex', 'opencode']),
+  harness: z.enum(['claude-code', 'codex', 'opencode', 'api']),
   mode: z.enum(['guarded', 'collaborate', 'full']),
   /** Native session per harness: switching harness starts a new one and keeps the old to switch back. */
   sessions: z.record(z.string(), z.string()).default({}),

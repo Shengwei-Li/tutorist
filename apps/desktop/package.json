@@ -23,7 +23,9 @@
     "zod": "^4.6.7",
     "@tutordesk/pipeline": "workspace:*",
     "@tutordesk/render": "workspace:*",
-    "@tutordesk/toolbox": "workspace:*"
+    "@tutordesk/toolbox": "workspace:*",
+    "@tutordesk/harness": "workspace:*",
+    "ai": "^7.0.153"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",

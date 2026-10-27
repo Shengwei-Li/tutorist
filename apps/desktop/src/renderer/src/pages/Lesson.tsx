@@ -1,151 +1,158 @@
 import clsx from 'clsx';
-import { Button, EmptyState, Field, Panel, Select, StatusMark, TextInput } from '@tutordesk/ui';
-import { ArrowLeft, FolderOpen, Paperclip } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { Button, Select, StatusMark } from '@tutordesk/ui';
+import { AlertTriangle, ArrowLeft, Check, ChevronDown, FolderOpen } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { ArtifactKind, LessonPlan } from '@tutordesk/core/artifacts';
 import { BEAMER_THEMES, type BeamerTheme, type CompileOutcome, type EditionMode, type LessonDetail, type QaReportView } from '../../../shared/ipc';
-import { useT, type TKey } from '../i18n';
+import { useT } from '../i18n';
 import { PdfFrame } from '../PdfFrame';
-import { cleanError, useRun } from '../useRun';
+import { AgentControls } from '../thread/AgentControls';
+import { AGENT_LABEL, fill, kindLabel } from '../thread/labels';
+import { ThreadPanel, type Recipe } from '../thread/ThreadPanel';
+import { useThread } from '../thread/useThread';
+import { cleanError } from '../useRun';
 
 const KINDS: ArtifactKind[] = ['script', 'handout', 'worksheet', 'deck'];
-const KIND_LABEL: Record<ArtifactKind, { en: string; zh: string }> = {
-  script: { en: 'Script', zh: '底稿' },
-  handout: { en: 'Handout', zh: '讲义' },
-  worksheet: { en: 'Worksheet', zh: '练习卷' },
-  deck: { en: 'Slides', zh: '幻灯片' },
-};
 
-function useKindLabel() {
-  const zh = document.documentElement.lang.startsWith('zh');
-  return (k: ArtifactKind) => (zh ? KIND_LABEL[k].zh : KIND_LABEL[k].en);
-}
+const byLabel = (by?: string) => (by ? (AGENT_LABEL[by as keyof typeof AGENT_LABEL] ?? (by.startsWith('api:') ? by.slice(4) : by)) : undefined);
 
+/** Check results, folded: what is wrong first, scores on demand. */
 function QaBar({ qa }: { qa?: QaReportView }) {
   const t = useT();
   const [open, setOpen] = useState(false);
   if (!qa) return null;
   const warnings = qa.checks.filter((c) => c.severity === 'warning');
+  const problems = qa.needsTutor.length;
   return (
-    <div data-testid="qa" className="rounded-sm border border-border bg-surface px-3 py-2 text-sm">
-      <button className="flex w-full items-center justify-between text-left" onClick={() => setOpen((o) => !o)}>
-        <StatusMark status={qa.passed ? 'done' : 'error'}>
-          {t('lesson.qa')} · {qa.passed ? t('lesson.qaPassed') : t('lesson.qaNeedsYou')}
-          {qa.rounds ? ` · ${qa.rounds}×` : ''}
-          {warnings.length ? ` · ${warnings.length} ⚠` : ''}
-        </StatusMark>
-        <span className="text-xs text-text-3">{qa.usd ? `$${qa.usd.toFixed(3)}` : ''} {open ? '⌃' : '⌄'}</span>
+    <div data-testid="qa" className="rounded-lg border border-border bg-surface text-[13px]">
+      <button className="flex w-full items-center gap-2 px-3 py-2 text-left" onClick={() => setOpen((o) => !o)}>
+        {qa.passed ? <Check size={14} strokeWidth={1.75} className="text-positive" /> : <AlertTriangle size={14} strokeWidth={1.75} className="text-warning" />}
+        <span className={qa.passed ? 'text-text-2' : 'text-warning'}>
+          {qa.passed ? t('lesson.qaPassed') : `${t('lesson.qaNeedsYou')} · ${problems}`}
+          {warnings.length ? <span className="text-text-3"> · {fill(t('lesson.notes'), { n: warnings.length, s: warnings.length === 1 ? '' : 's' })}</span> : null}
+        </span>
+        <ChevronDown size={14} strokeWidth={1.6} className={clsx('ml-auto text-text-3 transition-transform', open && 'rotate-180')} />
       </button>
       {open && (
-        <div className="mt-2 flex flex-col gap-1 border-t border-border pt-2">
+        <div className="flex flex-col gap-1.5 border-t border-border px-3 py-2.5">
           {qa.needsTutor.map((n, i) => (
-            <p key={`n${i}`} className="text-danger">
+            <p key={`n${i}`} className="text-warning">
               {n}
             </p>
           ))}
           {warnings.map((c, i) => (
             <p key={`w${i}`} className="text-text-2">
-              ⚠ {c.message}
+              {c.message}
             </p>
           ))}
           {qa.review?.scores.map((s) => (
             <p key={s.criterion} className="text-text-2">
-              <span className="font-mono text-xs text-text-3">{s.criterion}</span> {s.score}/5{s.fix ? ` · ${s.fix}` : ''}
+              <span className="font-mono text-[12px] text-text-3">{s.criterion}</span> {s.score}/5{s.fix ? ` · ${s.fix}` : ''}
             </p>
           ))}
-          {qa.review?.overall && <p className="text-text-2 italic">{qa.review.overall}</p>}
         </div>
       )}
     </div>
   );
 }
 
-function PlanEditor({ plan, minutes, onChange }: { plan: LessonPlan; minutes: number; onChange: (p: LessonPlan) => void }) {
+function Section({ title, children, aside }: { title: string; children: ReactNode; aside?: ReactNode }) {
+  return (
+    <section className="border-t border-border px-4 py-3">
+      <div className="mb-2 flex items-baseline justify-between">
+        <h4 className="text-[12px] font-medium text-text-3">{title}</h4>
+        {aside}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+/** The plan card as the tutor reviews it: point, objectives with pass marks, timed stages, target errors. */
+function PlanCard({ plan, minutes, onChange }: { plan: LessonPlan; minutes: number; onChange: (p: LessonPlan) => void }) {
   const t = useT();
   const total = plan.stages.reduce((a, s) => a + (Number.isFinite(s.minutes) ? s.minutes : 0), 0);
   const setStage = (i: number, patch: Partial<LessonPlan['stages'][number]>) => onChange({ ...plan, stages: plan.stages.map((s, j) => (j === i ? { ...s, ...patch } : s)) });
   return (
-    <div className="flex flex-col gap-4">
-      <p className="text-sm text-text-2">{plan.summary}</p>
-      <section>
-        <h3 className="mb-1 text-xs font-semibold tracking-wide text-text-3 uppercase">{t('lesson.objectives')}</h3>
-        <ol className="list-decimal pl-5 text-sm">
-          {plan.objectives.map((o) => (
-            <li key={o.id}>
-              {o.text} <span className="text-text-3">— {o.criterion}</span>
+    <div className="rounded-lg border border-border bg-surface">
+      <h3 className="px-4 pt-4 text-[16px] font-semibold tracking-tight">{plan.title}</h3>
+      <p className="px-4 pt-1 pb-3.5 text-[13px] leading-relaxed text-text-2">{plan.summary}</p>
+      <Section title={t('lesson.objectives')}>
+        <ol className="flex flex-col gap-2">
+          {plan.objectives.map((o, i) => (
+            <li key={o.id} className="grid grid-cols-[18px_1fr] gap-x-2 text-[13px]">
+              <span className="text-text-3 tabular-nums">{i + 1}</span>
+              <span>{o.text}</span>
+              <span className="col-start-2 text-[12px] text-text-3">{o.criterion}</span>
             </li>
           ))}
         </ol>
-      </section>
-      <section>
-        <h3 className="mb-1 text-xs font-semibold tracking-wide text-text-3 uppercase">{t('lesson.focusErrors')}</h3>
-        <ul className="flex flex-col gap-1 text-sm">
-          {plan.focusErrors.map((f, i) => (
-            <li key={i}>
-              <code className="font-mono text-xs text-text-2">{f.code}</code> <span className="font-serif">{f.evidence}</span>
-            </li>
-          ))}
-        </ul>
-      </section>
-      <section>
-        <div className="mb-1 flex items-baseline justify-between">
-          <h3 className="text-xs font-semibold tracking-wide text-text-3 uppercase">{t('lesson.stages')}</h3>
-          <span data-testid="plan-total" className={clsx('text-sm tabular-nums', total === minutes ? 'text-text-2' : 'text-danger')}>
-            {t('lesson.total')} {total} / {minutes} min
+      </Section>
+      <Section
+        title={t('lesson.stages')}
+        aside={
+          <span data-testid="plan-total" className={clsx('text-[12px] tabular-nums', total === minutes ? 'text-text-3' : 'text-danger')}>
+            {total} / {minutes} min
           </span>
-        </div>
-        <div className="divide-y divide-border rounded-sm border border-border">
+        }
+      >
+        <div className="flex flex-col">
           {plan.stages.map((s, i) => (
-            <div key={s.id} className="grid grid-cols-[56px_1fr] gap-3 px-3 py-2">
-              <TextInput
+            <div key={s.id} className="grid grid-cols-[44px_1fr] items-baseline gap-2.5 border-b border-dashed border-border py-1.5 last:border-b-0">
+              <input
+                aria-label={`${s.title} minutes`}
                 type="number"
                 min={1}
                 max={90}
-                className="h-7 w-14 text-right tabular-nums"
                 value={Number.isFinite(s.minutes) ? s.minutes : ''}
                 onChange={(e) => setStage(i, { minutes: parseInt(e.target.value, 10) })}
+                className="h-6 w-11 rounded-sm bg-transparent text-right text-[13px] text-text-3 tabular-nums outline-none hover:bg-surface-2 focus:bg-surface-2 focus:text-text"
               />
               <div className="min-w-0">
-                <TextInput className="h-7 w-full font-medium" value={s.title} onChange={(e) => setStage(i, { title: e.target.value })} />
-                <p className="mt-1 text-xs text-text-3">
-                  {s.phase} · {s.activity}
-                  {s.materials.length ? ` · ${s.materials.join(', ')}` : ''}
+                <input
+                  aria-label="Stage title"
+                  value={s.title}
+                  onChange={(e) => setStage(i, { title: e.target.value })}
+                  className="w-full rounded-sm bg-transparent text-[13px] outline-none hover:bg-surface-2 focus:bg-surface-2"
+                />
+                <p className="text-[12px] leading-snug text-text-3">
+                  {s.activity}
+                  {s.materials.length ? ` · ${s.materials.map((m) => kindLabel(m, true)).join(', ')}` : ''}
                 </p>
               </div>
             </div>
           ))}
         </div>
-      </section>
+      </Section>
+      <Section title={t('lesson.focusErrors')}>
+        <ul className="flex flex-col gap-1.5">
+          {plan.focusErrors.map((f, i) => (
+            <li key={i} className="grid grid-cols-[auto_1fr] gap-2.5 text-[13px]">
+              <code className="font-mono text-[12px] text-text-3">{f.code}</code>
+              <span className="text-text-2">{f.evidence}</span>
+            </li>
+          ))}
+        </ul>
+      </Section>
       {plan.homework.length > 0 && (
-        <section>
-          <h3 className="mb-1 text-xs font-semibold tracking-wide text-text-3 uppercase">{t('lesson.homework')}</h3>
-          <ul className="list-disc pl-5 text-sm">
+        <Section title={t('lesson.homework')}>
+          <ul className="flex list-disc flex-col gap-1 pl-4 text-[13px] text-text-2 marker:text-text-3">
             {plan.homework.map((h, i) => (
               <li key={i}>{h}</li>
             ))}
           </ul>
-        </section>
+        </Section>
       )}
     </div>
   );
 }
 
-function ArtifactView({ studentId, lessonId, kind, detail, theme, running, onRevise, onGenerate }: {
-  studentId: string;
-  lessonId: string;
-  kind: ArtifactKind;
-  detail: LessonDetail;
-  theme: BeamerTheme;
-  running: boolean;
-  onRevise: (instruction: string) => void;
-  onGenerate: () => void;
-}) {
+function ArtifactView({ studentId, lessonId, kind, detail, theme }: { studentId: string; lessonId: string; kind: ArtifactKind; detail: LessonDetail; theme: BeamerTheme }) {
   const t = useT();
   const [mode, setMode] = useState<EditionMode>('student');
   const [deckTheme, setDeckTheme] = useState<BeamerTheme>(theme);
   const [out, setOut] = useState<CompileOutcome | null>(null);
   const [busy, setBusy] = useState(false);
-  const [instruction, setInstruction] = useState('');
   const doc = detail.docs[kind];
   const stamp = detail.qa[kind]?.at;
 
@@ -163,111 +170,99 @@ function ArtifactView({ studentId, lessonId, kind, detail, theme, running, onRev
     };
   }, [studentId, lessonId, kind, mode, deckTheme, stamp, doc]);
 
-  if (!doc) {
-    return (
-      <EmptyState
-        action={
-          <Button data-testid={`generate-${kind}`} variant="primary" disabled={running || !detail.lesson.planConfirmed} onClick={onGenerate}>
-            {t('lesson.generate')}
-          </Button>
-        }
-      >
-        {detail.lesson.planConfirmed ? t('lesson.noDoc') : t('lesson.noPlan')}
-      </EmptyState>
-    );
-  }
-
+  if (!doc) return null;
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-end gap-3">
+      <div className="flex items-center gap-2">
         {kind === 'deck' ? (
-          <Field label="Theme">
-            <Select value={deckTheme} onChange={(e) => setDeckTheme(e.target.value as BeamerTheme)}>
-              {BEAMER_THEMES.map((th) => (
-                <option key={th} value={th}>
-                  {th}
-                </option>
-              ))}
-            </Select>
-          </Field>
+          <Select aria-label="Theme" className="h-8 text-[13px]" value={deckTheme} onChange={(e) => setDeckTheme(e.target.value as BeamerTheme)}>
+            {BEAMER_THEMES.map((th) => (
+              <option key={th} value={th}>
+                {th}
+              </option>
+            ))}
+          </Select>
         ) : (
-          <Field label={t('lesson.edition')}>
-            <Select data-testid="edition" value={mode} onChange={(e) => setMode(e.target.value as EditionMode)}>
-              <option value="student">Student</option>
-              <option value="teacher">Teacher</option>
-              {kind !== 'script' && <option value="key">Answer key</option>}
-            </Select>
-          </Field>
+          <Select aria-label={t('lesson.edition')} data-testid="edition" className="h-8 text-[13px]" value={mode} onChange={(e) => setMode(e.target.value as EditionMode)}>
+            <option value="student">Student</option>
+            <option value="teacher">Teacher</option>
+            {kind !== 'script' && <option value="key">Answer key</option>}
+          </Select>
         )}
-        <Button variant="ghost" onClick={() => void window.tutordesk.lessons.revealOutput(studentId, lessonId)}>
-          <FolderOpen size={16} strokeWidth={1.5} /> {t('lesson.openFolder')}
-        </Button>
-        <Button variant="ghost" disabled={running} onClick={onGenerate}>
-          {t('lesson.regenerate')}
+        {busy && <StatusMark status="progress">PDF</StatusMark>}
+        <Button variant="ghost" className="ml-auto h-8 text-[13px]" onClick={() => void window.tutordesk.lessons.revealOutput(studentId, lessonId)}>
+          <FolderOpen size={15} strokeWidth={1.5} /> {t('lesson.openFolder')}
         </Button>
       </div>
       <QaBar qa={detail.qa[kind]} />
-      <div className="flex gap-2">
-        <TextInput data-testid="revise-input" className="flex-1" placeholder={t('lesson.revisePlaceholder')} value={instruction} onChange={(e) => setInstruction(e.target.value)} />
-        <Button
-          disabled={running || !instruction.trim()}
-          onClick={() => {
-            onRevise(instruction.trim());
-            setInstruction('');
-          }}
-        >
-          {t('lesson.revise')}
-        </Button>
-      </div>
-      {busy && <StatusMark status="progress">PDF…</StatusMark>}
       {out && !out.ok && (
-        <div className="text-sm text-danger">
+        <div className="text-[13px] text-danger">
           {out.errors.map((e, i) => (
-            <p key={i} className="font-mono text-xs">
+            <p key={i} className="font-mono text-[12px]">
               {e.line ? `l.${e.line} ` : ''}
               {e.message}
             </p>
           ))}
         </div>
       )}
-      {out?.ok && out.pdf && <PdfFrame pdf={out.pdf} className="h-[calc(100vh-260px)] min-h-[520px]" />}
+      {out?.ok && out.pdf && <PdfFrame pdf={out.pdf} className="h-[calc(100vh-190px)] min-h-[480px] rounded-lg border border-border" />}
     </div>
   );
 }
 
+function TabMark({ qa, has }: { qa?: QaReportView; has: boolean }) {
+  if (!has || !qa) return null;
+  if (qa.passed) return <Check size={13} strokeWidth={2} className="text-positive" aria-label="passed" />;
+  return <span className="text-[12px] font-medium text-warning tabular-nums">{qa.needsTutor.length || '!'}</span>;
+}
+
+/**
+ * The lesson workbench (appendix E.9): the conversation with the agent in the middle, what it
+ * produces on the right, and the tutor's own gate, approving the plan, on the plan card.
+ */
 export function LessonPage({ studentId, lessonId, studentName, theme, onBack }: { studentId: string; lessonId: string; studentName: string; theme: BeamerTheme; onBack: () => void }) {
   const t = useT();
-  const kindLabel = useKindLabel();
   const [detail, setDetail] = useState<LessonDetail | null>(null);
   const [tab, setTab] = useState<'plan' | ArtifactKind>('plan');
   const [draft, setDraft] = useState<LessonPlan | null>(null);
-  const [brief, setBrief] = useState('');
-  const [outputs, setOutputs] = useState<ArtifactKind[]>(KINDS);
+  const [dirty, setDirty] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [justApproved, setJustApproved] = useState(false);
 
   const load = useCallback(async () => {
     const d = await window.tutordesk.lessons.get(studentId, lessonId);
     setDetail(d);
-    setDraft(d.plan);
-    setBrief(d.lesson.brief);
-    if (d.plan) setOutputs(d.plan.outputs);
+    setDirty((wasDirty) => {
+      if (!wasDirty) setDraft(d.plan);
+      return wasDirty;
+    });
   }, [studentId, lessonId]);
   useEffect(() => void load(), [load]);
 
-  const run = useRun(() => void load());
+  const subject = useMemo(() => ({ type: 'lesson' as const, studentId, lessonId }), [studentId, lessonId]);
+  const thread = useThread(subject, () => void load());
+  const agent = thread.view?.agent ?? 'api';
+
+  const approved = detail?.lesson.planConfirmed ?? false;
+  const recipes: Recipe[] = [
+    { id: 'plan', label: t('recipe.plan'), text: t('recipe.planText') },
+    { id: 'materials', label: t('recipe.materials'), text: t('recipe.materialsText'), disabled: !approved, hint: approved ? undefined : t('panel.approveFirst') },
+    { id: 'easier', label: t('recipe.easier'), text: fill(t('recipe.easierText'), { doc: tab === 'plan' ? kindLabel('worksheet', true) : kindLabel(tab, true) }), prefill: true, disabled: !detail || !Object.keys(detail.docs).length },
+  ];
 
   if (!detail) return null;
   const { lesson } = detail;
-  const draftTotal = draft?.stages.reduce((a, s) => a + (Number.isFinite(s.minutes) ? s.minutes : 0), 0) ?? 0;
+  const total = draft?.stages.reduce((a, s) => a + (Number.isFinite(s.minutes) ? s.minutes : 0), 0) ?? 0;
+  const planBy = byLabel(detail.qa.plan?.by);
 
   const approve = async () => {
     if (!draft) return;
     setError(null);
     try {
-      await window.tutordesk.lessons.confirmPlan(studentId, lessonId, { ...draft, outputs });
+      await window.tutordesk.lessons.confirmPlan(studentId, lessonId, draft);
+      setDirty(false);
+      setJustApproved(!approved);
       await load();
-      await run.start(() => window.tutordesk.lessons.generate(studentId, lessonId, outputs));
-      setTab(outputs[0] ?? 'plan');
     } catch (e) {
       setError(cleanError(e));
     }
@@ -275,133 +270,95 @@ export function LessonPage({ studentId, lessonId, studentName, theme, onBack }: 
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex h-12 shrink-0 items-center gap-3 border-b border-border px-4">
+      <header className="flex h-[52px] shrink-0 items-center gap-3 border-b border-border bg-surface px-4">
         <Button variant="ghost" className="h-7 px-2" onClick={onBack} aria-label={t('common.back')}>
           <ArrowLeft size={16} strokeWidth={1.5} />
         </Button>
-        <span className="text-sm text-text-2">{studentName}</span>
-        <span className="text-text-3">/</span>
-        <span className="text-sm font-medium">
-          L{String(lesson.number).padStart(2, '0')} · {lesson.date} · {lesson.minutes} min
-        </span>
-        <span className="ml-auto">
-          <StatusMark status={lesson.planConfirmed ? 'done' : detail.plan ? 'progress' : 'pending'}>{lesson.planConfirmed ? t('lesson.approved') : t(`lesson.${lesson.status}` as TKey)}</StatusMark>
-        </span>
+        <p className="min-w-0 truncate text-[13px] text-text-3">
+          {studentName} / <span className="font-medium text-text">L{String(lesson.number).padStart(2, '0')}{lesson.topic ? ` · ${lesson.topic}` : ''}</span> · {lesson.date} · {lesson.minutes} min
+        </p>
+        <div className="ml-auto">{thread.view && <AgentControls agent={agent} mode={thread.view.mode} disabled={thread.running} onChange={(p) => void thread.configure(p)} />}</div>
       </header>
 
-      <div className="grid min-h-0 flex-1 grid-cols-[260px_1fr_280px]">
-        {/* context */}
-        <aside className="flex flex-col gap-4 overflow-auto border-r border-border p-4">
-          <Field label={t('lesson.brief')} hint={t('lesson.briefHint')}>
-            <textarea
-              data-testid="lesson-brief"
-              rows={5}
-              className="rounded-sm border border-border-strong bg-surface p-2 text-sm focus:border-accent focus:outline-none"
-              value={brief}
-              onChange={(e) => setBrief(e.target.value)}
-              onBlur={() => brief !== lesson.brief && void window.tutordesk.lessons.setBrief(studentId, lessonId, brief)}
-            />
-          </Field>
-          <div className="flex flex-col gap-1.5 text-sm">
-            <span className="font-medium text-text-2">{t('lesson.materials')}</span>
-            {lesson.materials.map((m) => (
-              <code key={m} className="truncate font-mono text-xs text-text-2" title={m}>
-                {m.split('/').pop()}
-              </code>
-            ))}
-            <Button variant="ghost" className="h-7 self-start px-1" onClick={async () => (await window.tutordesk.lessons.attachMaterial(studentId, lessonId)) && load()}>
-              <Paperclip size={14} strokeWidth={1.5} /> {t('lesson.attach')}
-            </Button>
-          </div>
-          <div className="flex flex-col gap-1.5 text-sm">
-            <span className="font-medium text-text-2">{t('lesson.outputs')}</span>
-            {KINDS.map((k) => (
-              <label key={k} className="flex items-center gap-2">
-                <input type="checkbox" checked={outputs.includes(k)} onChange={(e) => setOutputs(e.target.checked ? KINDS.filter((x) => x === k || outputs.includes(x)) : outputs.filter((x) => x !== k))} />
-                {kindLabel(k)}
-              </label>
-            ))}
-          </div>
-        </aside>
+      <div className="grid min-h-0 flex-1 grid-cols-[minmax(420px,1fr)_minmax(400px,40%)]">
+        <ThreadPanel thread={thread} agent={agent} recipes={recipes} onAttach={() => window.tutordesk.threads.attach(studentId)} />
 
-        {/* documents */}
-        <section className="flex min-w-0 flex-col overflow-hidden">
-          <nav className="flex h-10 shrink-0 items-end gap-1 border-b border-border px-4">
+        <aside className="flex min-h-0 flex-col border-l border-border bg-bg">
+          <nav className="flex h-11 shrink-0 items-end gap-1 border-b border-border px-3">
             {(['plan', ...KINDS] as const).map((k) => (
               <button
                 key={k}
                 data-testid={`tab-${k}`}
                 onClick={() => setTab(k)}
-                className={clsx('h-9 border-b-2 px-3 text-sm', tab === k ? 'border-accent font-medium text-text' : 'border-transparent text-text-2 hover:text-text')}
+                className={clsx('-mb-px flex h-10 items-center gap-1.5 border-b-2 px-2.5 text-[13px]', tab === k ? 'border-text font-medium text-text' : 'border-transparent text-text-3 hover:text-text')}
               >
-                {k === 'plan' ? t('lesson.stages') : kindLabel(k)}
-                {k !== 'plan' && detail.docs[k] ? <span className="ml-1 text-text-3">●</span> : null}
+                {k === 'plan' ? t('lesson.plan') : kindLabel(k)}
+                {k === 'plan' ? approved && <Check size={13} strokeWidth={2} className="text-positive" /> : <TabMark qa={detail.qa[k]} has={!!detail.docs[k]} />}
               </button>
             ))}
           </nav>
-          <div className="min-h-0 flex-1 overflow-auto p-4">
-            {error && <p className="mb-3 text-sm text-danger">{error}</p>}
-            {tab === 'plan' ? (
-              draft ? (
-                <div className="flex max-w-3xl flex-col gap-4">
-                  <QaBar qa={detail.qa.plan} />
-                  <PlanEditor plan={draft} minutes={lesson.minutes} onChange={setDraft} />
-                  <div className="flex gap-2">
-                    <Button data-testid="approve-plan" variant="primary" disabled={run.running || draftTotal !== lesson.minutes || !outputs.length} onClick={approve}>
-                      {t('lesson.approve')}
-                    </Button>
-                    <Button disabled={run.running} onClick={() => void run.start(() => window.tutordesk.lessons.plan(studentId, lessonId, { brief, outputs }))}>
-                      {t('lesson.replan')}
-                    </Button>
+
+          <div className="min-h-0 flex-1 overflow-y-auto p-4">
+            {error && <p className="mb-3 text-[13px] text-danger">{error}</p>}
+            {tab === 'plan' &&
+              (draft ? (
+                <div className="flex flex-col gap-3">
+                  <div className="flex items-center gap-2 text-[13px] text-text-2">
+                    {approved ? <Check size={15} strokeWidth={1.75} className="text-positive" /> : <span className="h-2 w-2 rounded-full border border-warning" />}
+                    <span>
+                      <span className="font-medium text-text">{approved ? t('panel.approvedBy') : t('panel.waiting')}</span>
+                      {planBy && <span className="text-text-3"> · {fill(t('panel.writtenBy'), { by: planBy })}</span>}
+                    </span>
                   </div>
+                  {!detail.qa.plan?.passed && <QaBar qa={detail.qa.plan} />}
+                  <PlanCard
+                    plan={draft}
+                    minutes={lesson.minutes}
+                    onChange={(p) => {
+                      setDraft(p);
+                      setDirty(true);
+                      setJustApproved(false);
+                    }}
+                  />
+                  {(!approved || dirty) && (
+                    <div className="flex items-center gap-3">
+                      <Button data-testid="approve-plan" variant="primary" disabled={total !== lesson.minutes || thread.running} onClick={approve}>
+                        {approved ? t('panel.saveChanges') : t('panel.approve')}
+                      </Button>
+                      {total !== lesson.minutes && <span className="text-[12px] text-danger tabular-nums">{total} / {lesson.minutes} min</span>}
+                    </div>
+                  )}
+                  {justApproved && approved && !dirty && (
+                    <div className="flex items-center gap-3 rounded-lg border border-border bg-surface px-4 py-3 text-[13px]">
+                      <span className="text-text-2">{t('panel.afterApprove')}</span>
+                      <Button data-testid="write-materials" className="ml-auto h-8 text-[13px]" disabled={thread.running} onClick={() => void thread.send(t('recipe.materialsText'))}>
+                        {t('recipe.materials')}
+                      </Button>
+                    </div>
+                  )}
                 </div>
               ) : (
-                <EmptyState
-                  action={
-                    <Button data-testid="make-plan" variant="primary" disabled={run.running} onClick={() => void run.start(() => window.tutordesk.lessons.plan(studentId, lessonId, { brief, outputs }))}>
-                      {t('lesson.makePlan')}
+                <div className="flex flex-col items-start gap-3 pt-10 text-[14px] leading-relaxed text-text-3">
+                  <p className="max-w-sm">{t('panel.noPlan')}</p>
+                  <Button data-testid="make-plan" disabled={thread.running} onClick={() => void thread.send(t('recipe.planText'))}>
+                    {t('recipe.plan')}
+                  </Button>
+                </div>
+              ))}
+            {tab !== 'plan' &&
+              (detail.docs[tab] ? (
+                <ArtifactView key={tab} studentId={studentId} lessonId={lessonId} kind={tab} detail={detail} theme={theme} />
+              ) : (
+                <div className="flex flex-col items-start gap-3 pt-10 text-[14px] text-text-3">
+                  <p>{approved ? t('panel.notWritten') : t('panel.approveFirst')}</p>
+                  {approved && (
+                    <Button data-testid={`write-${tab}`} disabled={thread.running} onClick={() => void thread.send(fill(t('recipe.oneText'), { doc: kindLabel(tab, true) }))}>
+                      {t('panel.writeIt')}
                     </Button>
-                  }
-                >
-                  {t('lesson.noPlan')}
-                </EmptyState>
-              )
-            ) : (
-              <ArtifactView
-                key={tab}
-                studentId={studentId}
-                lessonId={lessonId}
-                kind={tab}
-                detail={detail}
-                theme={theme}
-                running={run.running}
-                onGenerate={() => void run.start(() => window.tutordesk.lessons.generate(studentId, lessonId, [tab]))}
-                onRevise={(ins) => void run.start(() => window.tutordesk.lessons.revise(studentId, lessonId, tab, ins))}
-              />
-            )}
+                  )}
+                </div>
+              ))}
           </div>
-        </section>
-
-        {/* progress */}
-        <aside className="flex flex-col overflow-hidden border-l border-border">
-          <div className="flex h-10 shrink-0 items-center justify-between border-b border-border px-4">
-            <span className="text-sm font-semibold">{t('lesson.progress')}</span>
-            {run.running && (
-              <Button variant="ghost" className="h-7" onClick={run.cancel}>
-                {t('common.stop')}
-              </Button>
-            )}
-          </div>
-          <div data-testid="run-log" className="flex-1 overflow-auto p-4 font-mono text-xs leading-relaxed">
-            {run.lines.map((l, i) => (
-              <div key={i} className={l.tone === 'error' ? 'text-danger' : l.tone === 'muted' ? 'text-text-3' : 'text-text-2'}>
-                {l.text}
-              </div>
-            ))}
-            {run.error && <div className="text-danger">{run.error}</div>}
-            {run.running && <div className="text-accent">◐</div>}
-          </div>
-          {run.usd > 0 && <div className="border-t border-border px-4 py-2 text-xs text-text-3 tabular-nums">${run.usd.toFixed(3)}</div>}
         </aside>
       </div>
     </div>

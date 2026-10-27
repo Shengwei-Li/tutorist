@@ -26,6 +26,9 @@ importers:
       '@tutordesk/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@tutordesk/harness':
+        specifier: workspace:*
+        version: link:../../packages/harness
       '@tutordesk/pipeline':
         specifier: workspace:*
         version: link:../../packages/pipeline
@@ -44,6 +47,9 @@ importers:
       '@tutordesk/ui':
         specifier: workspace:*
         version: link:../../packages/ui
+      ai:
+        specifier: ^7.0.153
+        version: 7.0.153(zod@4.6.7)
       clsx:
         specifier: ^2.1.1
         version: 2.1.1
@@ -102,13 +108,18 @@ importers:
       '@tutordesk/core':
         specifier: workspace:*
         version: link:../core
-      zod:
-        specifier: ^4.6.7
-        version: 4.6.7
-    devDependencies:
+      '@tutordesk/providers':
+        specifier: workspace:*
+        version: link:../providers
       '@tutordesk/toolbox':
         specifier: workspace:*
         version: link:../toolbox
+      ai:
+        specifier: ^7.0.153
+        version: 7.0.153(zod@4.6.7)
+      zod:
+        specifier: ^4.6.7
+        version: 4.6.7
 
   packages/pipeline:
     dependencies:

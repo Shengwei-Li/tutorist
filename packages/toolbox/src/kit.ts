@@ -141,3 +141,18 @@ export async function writeAgentKit(root: string, version = KIT_VERSION): Promis
   }
   return written;
 }
+
+/**
+ * System prompt for API chat sessions (appendix E.3.2): models reached by API key have no skills
+ * mechanism, so the workflows travel inline. Reference knowledge stays behind get_guidelines.
+ */
+export function apiSystemPrompt(): string {
+  const workflows = SKILLS.filter((s) => ['tutordesk-lesson-prep', 'tutordesk-writing-review', 'tutordesk-materials'].includes(s.name));
+  return `${AGENTS_MD.replace(/\n## Workflows[\s\S]*$/, '')}
+## Tools in this session
+
+TutorDesk tools are plain functions here (list_students, get_student_context, save_plan, save_artifact, …), plus read_file, list_dir and search_text for reading the workspace. Exam facts, teaching rules and error codes: get_guidelines.
+
+${workflows.map((s) => s.body.trim()).join('\n\n')}
+`;
+}

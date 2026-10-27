@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { DesktopApi, RunEvent } from '../shared/ipc.js';
+import type { DesktopApi, RunEvent, ThreadEvent } from '../shared/ipc.js';
 
 const invoke = (channel: string, ...args: unknown[]) => ipcRenderer.invoke(channel, ...args);
 
@@ -46,6 +46,22 @@ const api: DesktopApi = {
       ipcRenderer.on('run:event', listener);
       return () => ipcRenderer.removeListener('run:event', listener);
     },
+  },
+  threads: {
+    open: (subject) => invoke('threads:open', subject),
+    send: (id, text) => invoke('threads:send', id, text),
+    respond: (id, requestId, decision) => invoke('threads:respond', id, requestId, decision),
+    interrupt: (id) => invoke('threads:interrupt', id),
+    configure: (id, patch) => invoke('threads:configure', id, patch),
+    attach: (studentId) => invoke('threads:attach', studentId),
+    onEvent: (cb) => {
+      const listener = (_e: Electron.IpcRendererEvent, threadId: string, ev: ThreadEvent) => cb(threadId, ev);
+      ipcRenderer.on('thread:event', listener);
+      return () => ipcRenderer.removeListener('thread:event', listener);
+    },
+  },
+  agents: {
+    status: () => invoke('agents:status'),
   },
   health: {
     ai: () => invoke('health:ai'),

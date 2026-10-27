@@ -3,7 +3,7 @@ import path from 'node:path';
 import { app, safeStorage } from 'electron';
 import { writeFileAtomic, writeJson } from '@tutordesk/core';
 import { DEFAULT_MODELS } from '@tutordesk/providers';
-import { API_GATEWAYS, BEAMER_THEMES, type AppSettings } from '../shared/ipc.js';
+import { AGENTS, API_GATEWAYS, BEAMER_THEMES, type AppSettings } from '../shared/ipc.js';
 
 const file = () => path.join(app.getPath('userData'), 'settings.json');
 const keyFile = () => path.join(app.getPath('userData'), 'api-key.bin');
@@ -15,6 +15,8 @@ function defaults(): AppSettings {
     language: app.getLocale().startsWith('zh') ? 'zh' : 'en',
     beamerTheme: 'tutorswiss',
     aiBackend: 'api',
+    agent: 'api',
+    agentMode: 'guarded',
     api: { gateway: 'openrouter', models: { ...DEFAULT_MODELS.openrouter } },
     studio: { name: 'My Tutoring Studio', monogram: 'TS' },
     tutorName: '',
@@ -36,6 +38,9 @@ export async function loadSettings(): Promise<AppSettings> {
   if (process.env.TUTORDESK_WORKSPACE) merged.workspaceRoot = path.resolve(process.env.TUTORDESK_WORKSPACE);
   if (process.env.TUTORDESK_AI_BACKEND === 'api' || process.env.TUTORDESK_AI_BACKEND === 'claude-cli') merged.aiBackend = process.env.TUTORDESK_AI_BACKEND;
   if (!BEAMER_THEMES.includes(merged.beamerTheme)) merged.beamerTheme = 'tutorswiss';
+  // Settings written before agent threads existed: keep whichever backend the tutor had chosen.
+  if (!AGENTS.includes(stored.agent as AppSettings['agent'])) merged.agent = merged.aiBackend === 'claude-cli' ? 'claude-code' : 'api';
+  if (AGENTS.includes(process.env.TUTORDESK_AGENT as AppSettings['agent'])) merged.agent = process.env.TUTORDESK_AGENT as AppSettings['agent'];
   if (!API_GATEWAYS.includes(merged.api.gateway)) merged.api.gateway = 'openrouter';
   cache = merged;
   return merged;

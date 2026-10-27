@@ -22,6 +22,7 @@ import {
   type TexStatus,
 } from '../shared/ipc.js';
 import { loadApiKey, loadSettings, saveSettings, storeApiKey } from './settings.js';
+import { ThreadService } from './threads.js';
 
 /** Bundled workspace template: repo folder in development, resources folder when packaged. */
 function templateRoot(): string {
@@ -64,6 +65,18 @@ async function texEngine(): Promise<TexEngine> {
 }
 
 const texDir = async () => path.join((await ws()).root, 'templates', 'tex');
+
+const threads = new ThreadService({
+  ws,
+  tex: async () => {
+    const engine = await texEngine();
+    return (await engine.detect()) ? engine : undefined;
+  },
+});
+
+export function closeThreads(): Promise<void> {
+  return threads.closeAll();
+}
 
 async function pipeline(onEvent?: (e: PipelineEvent) => void, signal?: AbortSignal): Promise<LessonPipeline> {
   const s = await loadSettings();
@@ -163,6 +176,13 @@ export function registerIpc(): void {
 
   // settings
   h('settings:get', () => loadSettings());
+  h('threads:open', (_e, subject: Parameters<ThreadService['open']>[0]) => threads.open(subject));
+  h('threads:send', (e, id: string, text: string) => threads.send(e.sender, id, text));
+  h('threads:respond', (_e, id: string, requestId: string, decision: 'allow' | 'deny') => threads.respond(id, requestId, decision));
+  h('threads:interrupt', (_e, id: string) => threads.interrupt(id));
+  h('threads:configure', (_e, id: string, patch: Parameters<ThreadService['configure']>[1]) => threads.configure(id, patch));
+  h('threads:attach', (_e, studentId: string) => threads.attach(studentId));
+  h('agents:status', () => threads.status());
   h('settings:update', async (_e, patch: Parameters<typeof saveSettings>[0]) => {
     tex = undefined;
     const saved = await saveSettings(patch);

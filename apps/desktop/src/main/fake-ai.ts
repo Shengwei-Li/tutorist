@@ -3,6 +3,7 @@
  * can be exercised and screenshotted without an API key. Never enabled in normal use.
  */
 import type { AgentProvider } from '@tutordesk/providers';
+import type { ThreadSubject } from '../shared/ipc.js';
 import { deck, handout, script, worksheet } from '../../../../packages/render/test/fixtures/docs.js';
 import { FakeProvider, essay, plan90, promptKind, review, writingReview } from '../../../../packages/pipeline/test/fakes.js';
 
@@ -26,5 +27,45 @@ export function createFakeProvider(): AgentProvider {
       return docs[lastKind];
     }
     throw new Error(`fake AI: unrecognised prompt (${k})`);
+  });
+}
+
+/**
+ * Development-only chat model for agent threads (TUTORDESK_FAKE_AI=1): calls the real TutorDesk tools
+ * with fixture documents, so checks, typesetting and the whole thread UI run without an API key.
+ */
+export async function createFakeChatModel(subject: ThreadSubject) {
+  const { MockLanguageModelV4 } = await import('ai/test');
+  const { simulateReadableStream } = await import('ai');
+  const usage = { inputTokens: { total: 900, noCache: 900, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 120, text: 120, reasoning: 0 } };
+  const ids = subject.type === 'lesson' ? { studentId: subject.studentId, lessonId: subject.lessonId } : { studentId: subject.studentId, lessonId: '' };
+  type Chunk = Record<string, unknown>;
+  const say = (t: string, done: 'stop' | 'tool-calls' = 'stop'): Chunk[] => [
+    { type: 'text-start', id: 't' },
+    ...t.split(/(?<= )/).map((w) => ({ type: 'text-delta', id: 't', delta: w })),
+    { type: 'text-end', id: 't' },
+    ...(done === 'stop' ? [{ type: 'finish', finishReason: { unified: 'stop', raw: 'stop' }, usage }] : []),
+  ];
+  const calls = (list: [string, unknown][]): Chunk[] => [
+    ...list.map(([toolName, input], i) => ({ type: 'tool-call', toolCallId: `fake-${Date.now()}-${i}`, toolName, input: JSON.stringify(input) })),
+    { type: 'finish', finishReason: { unified: 'tool-calls', raw: 'tool_use' }, usage },
+  ];
+  const docs = { script, handout, worksheet, deck } as const;
+  const respond = (prompt: { role: string; content: unknown }[]): Chunk[] => {
+    const last = prompt.at(-1);
+    if (last?.role === 'tool') {
+      return JSON.stringify(last.content).includes('save_plan')
+        ? say('The plan card is saved and its checks passed. Review it on the right and approve it when you are happy.')
+        : say('Done. The documents are saved and checked; open each tab on the right to see the PDF.');
+    }
+    const text = JSON.stringify(last?.content ?? '').toLowerCase();
+    // The recipes arrive in the interface language.
+    if (/material|write|prepare|材料|写/.test(text)) return [...say('Writing the four documents from the approved plan.', 'tool-calls'), ...calls(Object.entries(docs).map(([kind, doc]) => ['save_artifact', { ...ids, kind, doc }]))];
+    if (/plan|计划|备/.test(text)) return [...say('Reading the student context, then drafting the plan card.', 'tool-calls'), ...calls([['get_student_context', ids], ['save_plan', { ...ids, plan: plan90 }]])];
+    return say('I can plan this lesson, write its materials or change one of them. What would you like?');
+  };
+  return new MockLanguageModelV4({
+    modelId: 'fake',
+    doStream: async (opts) => ({ stream: simulateReadableStream({ chunks: [{ type: 'stream-start', warnings: [] }, ...respond(opts.prompt as { role: string; content: unknown }[])], chunkDelayInMs: 15 }) }) as never,
   });
 }

@@ -4,13 +4,13 @@
   "type": "module",
   "packageManager": "pnpm@11.11.0",
   "scripts": {
-    "dev": "pnpm --filter @tutordesk/desktop dev",
-    "build": "pnpm --filter @tutordesk/desktop build",
+    "dev": "pnpm mcp:build && pnpm --filter @tutordesk/desktop dev",
+    "build": "pnpm mcp:build && pnpm --filter @tutordesk/desktop build",
     "typecheck": "pnpm -r --parallel typecheck",
     "test": "vitest run",
-    "smoke": "pnpm --filter @tutordesk/desktop build && cross-env TUTORDESK_SMOKE_DIR=../../.tutordesk-dev/smoke TUTORDESK_WORKSPACE=../../.tutordesk-dev/smoke/workspace pnpm --filter @tutordesk/desktop exec electron .",
+    "smoke": "pnpm mcp:build && pnpm --filter @tutordesk/desktop build && cross-env TUTORDESK_SMOKE_DIR=../../.tutordesk-dev/smoke TUTORDESK_WORKSPACE=../../.tutordesk-dev/smoke/workspace pnpm --filter @tutordesk/desktop exec electron .",
     "eval": "cross-env TUTORDESK_EVAL=1 vitest run packages/pipeline/eval",
-    "smoke:full": "pnpm --filter @tutordesk/desktop build && cross-env TUTORDESK_FAKE_AI=1 TUTORDESK_SMOKE_DIR=../../.tutordesk-dev/smoke-full TUTORDESK_WORKSPACE=../../.tutordesk-dev/smoke-full/workspace pnpm --filter @tutordesk/desktop exec electron .",
+    "smoke:full": "pnpm mcp:build && pnpm --filter @tutordesk/desktop build && cross-env TUTORDESK_FAKE_AI=1 TUTORDESK_SMOKE_DIR=../../.tutordesk-dev/smoke-full TUTORDESK_WORKSPACE=../../.tutordesk-dev/smoke-full/workspace pnpm --filter @tutordesk/desktop exec electron .",
     "mcp:build": "pnpm --filter @tutordesk/toolbox build"
   },
   "devDependencies": {

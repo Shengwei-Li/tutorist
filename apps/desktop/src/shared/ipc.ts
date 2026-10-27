@@ -14,6 +14,11 @@ export type BeamerTheme = (typeof BEAMER_THEMES)[number];
 export const API_GATEWAYS = ['openrouter', 'anthropic', 'openai', 'openai-compatible'] as const;
 export type ApiGateway = (typeof API_GATEWAYS)[number];
 
+/** Who does the work in a thread (appendix E): a local coding agent, or TutorDesk's own loop over an API key. */
+export const AGENTS = ['claude-code', 'codex', 'opencode', 'api'] as const;
+export type AgentId = (typeof AGENTS)[number];
+export type AgentMode = 'guarded' | 'collaborate' | 'full';
+
 export interface AppSettings {
   workspaceRoot: string;
   language: Lang;
@@ -21,6 +26,9 @@ export interface AppSettings {
   beamerTheme: BeamerTheme;
   /** Mode A (local CLI on the user's subscription) or mode B (API key) — SPEC §7.2. */
   aiBackend: 'claude-cli' | 'api';
+  /** Default agent for new threads, and its permission mode. */
+  agent: AgentId;
+  agentMode: AgentMode;
   api: { gateway: ApiGateway; baseURL?: string; models: Record<ModelTier, string> };
   studio: { name: string; monogram: string };
   tutorName: string;
@@ -55,6 +63,8 @@ export interface QaReportView {
   needsTutor: string[];
   usd: number;
   at: string;
+  /** Who wrote this version, e.g. "claude-code" or "api:google/gemini-3.8-flash". */
+  by?: string;
 }
 
 export interface LessonDetail {
@@ -115,6 +125,55 @@ export interface SubmissionDetail {
   image?: string;
 }
 
+/* ───────────────── threads (appendix E.3.3) ───────────────── */
+
+export type ThreadSubject =
+  | { type: 'student'; studentId: string }
+  | { type: 'lesson'; studentId: string; lessonId: string }
+  | { type: 'submission'; studentId: string; submissionId: string };
+
+/** Mirror of HarnessEvent from @tutordesk/harness (the renderer cannot import Node packages). */
+export type ThreadEvent =
+  | { type: 'session'; nativeId: string; model?: string }
+  | { type: 'text'; delta: string }
+  | { type: 'reasoning'; delta: string }
+  | { type: 'tool'; id: string; server?: string; name: string; input?: unknown; status: 'running' | 'ok' | 'error'; summary?: string }
+  | { type: 'file'; path: string; op: 'create' | 'edit' | 'delete' }
+  | { type: 'approval'; requestId: string; kind: 'command' | 'edit' | 'network' | 'tool' | 'other'; title: string; detail?: string }
+  | { type: 'notice'; level: 'info' | 'warning'; message: string }
+  | { type: 'usage'; inputTokens: number; outputTokens: number; cachedTokens?: number; usd?: number }
+  | { type: 'turn_end'; status: 'completed' | 'interrupted' | 'failed'; error?: string };
+
+export type ThreadEntry =
+  | { role: 'tutor'; text: string; at: string }
+  | { role: 'agent'; text: string; at: string; by?: AgentId }
+  | { role: 'tool'; name: string; ok: boolean; summary?: string; /** What it acted on: an artifact kind, a path, a query. */ target?: string; at: string }
+  | { role: 'system'; text: string; at: string };
+
+export interface ThreadView {
+  id: string;
+  subject: ThreadSubject;
+  agent: AgentId;
+  mode: AgentMode;
+  entries: ThreadEntry[];
+  /** A turn is in progress (e.g. after reopening the page mid-turn). */
+  running: boolean;
+  /** Approvals waiting for the tutor. */
+  pending: Extract<ThreadEvent, { type: 'approval' }>[];
+}
+
+export interface AgentStatus {
+  id: AgentId;
+  label: string;
+  /** Installed and signed in (or, for API, a key is stored). */
+  ready: boolean;
+  /** Installed, whether or not sign-in could be confirmed. */
+  installed: boolean;
+  version?: string;
+  /** Plain-language next step when not ready. */
+  detail?: string;
+}
+
 export interface DesktopApi {
   settings: {
     get(): Promise<AppSettings>;
@@ -155,6 +214,20 @@ export interface DesktopApi {
   runs: {
     cancel(runId: string): Promise<void>;
     onEvent(cb: (runId: string, ev: RunEvent) => void): () => void;
+  };
+  threads: {
+    /** The newest thread about this subject, created on first use. */
+    open(subject: ThreadSubject): Promise<ThreadView>;
+    send(threadId: string, text: string): Promise<void>;
+    respond(threadId: string, requestId: string, decision: 'allow' | 'deny'): Promise<void>;
+    interrupt(threadId: string): Promise<void>;
+    configure(threadId: string, patch: { agent?: AgentId; mode?: AgentMode }): Promise<ThreadView>;
+    /** Copy files the tutor picks into the student's materials/raw; returns workspace-relative paths. */
+    attach(studentId: string): Promise<string[]>;
+    onEvent(cb: (threadId: string, ev: ThreadEvent) => void): () => void;
+  };
+  agents: {
+    status(): Promise<AgentStatus[]>;
   };
   health: {
     ai(): Promise<HealthStatus & { backend: AppSettings['aiBackend'] }>;

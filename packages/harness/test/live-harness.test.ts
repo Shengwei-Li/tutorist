@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { WorkspaceService } from '@tutordesk/core';
 import { writeAgentKit } from '@tutordesk/toolbox';
-import { createSession, tutordeskMcpLaunch, type HarnessEvent, type HarnessId } from '../src/index.js';
+import { createSession, tutordeskMcpLaunch, type CliHarnessId as HarnessId, type HarnessEvent } from '../src/index.js';
 
 /**
  * One small real turn with a local agent on the user's own subscription (appendix E.10). Opt in after

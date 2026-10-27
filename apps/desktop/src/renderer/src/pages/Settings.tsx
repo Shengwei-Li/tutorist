@@ -1,8 +1,10 @@
 import { Button, Field, KeyValue, Panel, Select, StatusMark, TextInput } from '@tutordesk/ui';
 import { useEffect, useState } from 'react';
 import type { ModelTier } from '@tutordesk/providers/types';
-import { API_GATEWAYS, BEAMER_THEMES, type AppSettings, type ApiGateway, type BeamerTheme, type CompileOutcome, type CompileSampleRequest } from '../../../shared/ipc';
-import { useT } from '../i18n';
+import { AGENTS, API_GATEWAYS, BEAMER_THEMES, type AgentMode, type AppSettings, type ApiGateway, type BeamerTheme, type CompileOutcome, type CompileSampleRequest } from '../../../shared/ipc';
+import { useT, type TKey } from '../i18n';
+import { useAgentStatus } from '../thread/AgentControls';
+import { AGENT_LABEL } from '../thread/labels';
 import { PdfFrame } from '../PdfFrame';
 import { useHealth, type AiHealth } from '../useHealth';
 
@@ -31,6 +33,42 @@ function AiStatus({ ai }: { ai: AiHealth | null }) {
         </p>
       )}
     </div>
+  );
+}
+
+/** Which agent does the work by default, and how much it may do without asking (appendix E.6). */
+function Agents({ settings, update }: { settings: AppSettings; update: (p: Partial<AppSettings>) => Promise<void> }) {
+  const t = useT();
+  const status = useAgentStatus();
+  return (
+    <Panel title={t('agents.title')}>
+      <p className="mb-3 text-sm text-text-2">{t('agents.desc')}</p>
+      <div role="radiogroup" className="divide-y divide-border rounded-md border border-border">
+        {AGENTS.map((a) => {
+          const st = status?.find((s) => s.id === a);
+          return (
+            <label key={a} className="flex cursor-pointer items-center gap-3 px-3 py-2.5 text-sm">
+              <input type="radio" name="agent" data-testid={`default-agent-${a}`} checked={settings.agent === a} onChange={() => void update({ agent: a, aiBackend: a === 'claude-code' ? 'claude-cli' : 'api' })} />
+              <span className="w-28 font-medium">{AGENT_LABEL[a]}</span>
+              <span className="min-w-0 flex-1 truncate text-text-3">
+                {!st ? t('status.checking') : st.ready ? [t('status.ready'), st.version].filter(Boolean).join(' · ') : st.installed ? [t('agents.installed'), st.version].filter(Boolean).join(' · ') : (st.detail ?? t('thread.notReady'))}
+              </span>
+            </label>
+          );
+        })}
+      </div>
+      <div className="mt-4 w-72">
+        <Field label={t('agents.mode')} hint={t(`thread.modeHint.${settings.agentMode}` as TKey)}>
+          <Select data-testid="default-mode" value={settings.agentMode} onChange={(e) => void update({ agentMode: e.target.value as AgentMode })}>
+            {(['guarded', 'collaborate', 'full'] as const).map((m) => (
+              <option key={m} value={m}>
+                {t(`thread.mode.${m}` as TKey)}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      </div>
+    </Panel>
   );
 }
 
@@ -74,61 +112,39 @@ function AiConnection({ settings, update, ai, recheck }: { settings: AppSettings
       }
     >
       <div className="flex flex-col gap-4">
-        <div role="radiogroup" className="flex flex-col gap-1.5 text-sm">
-          {(['api', 'claude-cli'] as const).map((b) => (
-            <label key={b} className="flex items-center gap-2">
-              <input
-                type="radio"
-                name="backend"
-                data-testid={`backend-${b}`}
-                checked={settings.aiBackend === b}
-                onChange={async () => {
-                  await update({ aiBackend: b });
-                  recheck();
-                }}
-              />
-              {t(b === 'api' ? 'ai.backend.api' : 'ai.backend.cli')}
-            </label>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label={t('ai.gateway')}>
+            <Select data-testid="ai-gateway" value={settings.api.gateway} onChange={(e) => void setGateway(e.target.value as ApiGateway)}>
+              {API_GATEWAYS.map((g) => (
+                <option key={g} value={g}>
+                  {GATEWAY_LABEL[g]}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          {settings.api.gateway === 'openai-compatible' && (
+            <Field label={t('ai.baseUrl')}>
+              <TextInput value={baseURL} placeholder="https://…/v1" onChange={(e) => setBaseURL(e.target.value)} onBlur={saveModels} />
+            </Field>
+          )}
+        </div>
+        <Field label={t('ai.key')} hint={hasKey === null ? undefined : hasKey ? t('ai.keySaved') : t('ai.keyMissing')}>
+          <div className="flex gap-2">
+            <TextInput data-testid="ai-key" type="password" autoComplete="off" className="flex-1" value={key} placeholder={hasKey ? '••••••••' : 'sk-…'} onChange={(e) => setKey(e.target.value)} />
+            <Button data-testid="ai-save-key" disabled={!key.trim()} onClick={saveKey}>
+              {t('ai.saveKey')}
+            </Button>
+          </div>
+        </Field>
+        <div className="flex flex-col gap-2">
+          <span className="text-sm font-medium text-text-2">{t('ai.models')}</span>
+          {TIERS.map((tier) => (
+            <div key={tier} className="grid grid-cols-[1fr_1.4fr] items-center gap-3">
+              <span className="text-sm text-text-2">{t(`ai.tier.${tier}`)}</span>
+              <TextInput className="font-mono text-xs" value={models[tier]} onChange={(e) => setModels({ ...models, [tier]: e.target.value })} onBlur={saveModels} />
+            </div>
           ))}
         </div>
-
-        {settings.aiBackend === 'api' && (
-          <>
-            <div className="grid grid-cols-2 gap-3">
-              <Field label={t('ai.gateway')}>
-                <Select data-testid="ai-gateway" value={settings.api.gateway} onChange={(e) => void setGateway(e.target.value as ApiGateway)}>
-                  {API_GATEWAYS.map((g) => (
-                    <option key={g} value={g}>
-                      {GATEWAY_LABEL[g]}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-              {settings.api.gateway === 'openai-compatible' && (
-                <Field label={t('ai.baseUrl')}>
-                  <TextInput value={baseURL} placeholder="https://…/v1" onChange={(e) => setBaseURL(e.target.value)} onBlur={saveModels} />
-                </Field>
-              )}
-            </div>
-            <Field label={t('ai.key')} hint={hasKey === null ? undefined : hasKey ? t('ai.keySaved') : t('ai.keyMissing')}>
-              <div className="flex gap-2">
-                <TextInput data-testid="ai-key" type="password" autoComplete="off" className="flex-1" value={key} placeholder={hasKey ? '••••••••' : 'sk-…'} onChange={(e) => setKey(e.target.value)} />
-                <Button data-testid="ai-save-key" disabled={!key.trim()} onClick={saveKey}>
-                  {t('ai.saveKey')}
-                </Button>
-              </div>
-            </Field>
-            <div className="flex flex-col gap-2">
-              <span className="text-sm font-medium text-text-2">{t('ai.models')}</span>
-              {TIERS.map((tier) => (
-                <div key={tier} className="grid grid-cols-[1fr_1.4fr] items-center gap-3">
-                  <span className="text-sm text-text-2">{t(`ai.tier.${tier}`)}</span>
-                  <TextInput className="font-mono text-xs" value={models[tier]} onChange={(e) => setModels({ ...models, [tier]: e.target.value })} onBlur={saveModels} />
-                </div>
-              ))}
-            </div>
-          </>
-        )}
         <AiStatus ai={ai} />
       </div>
     </Panel>
@@ -290,6 +306,7 @@ export function SettingsPage({ settings, onSettings }: { settings: AppSettings; 
           </div>
         </div>
       </Panel>
+      <Agents settings={settings} update={update} />
       <AiConnection settings={settings} update={update} ai={ai} recheck={() => refresh(true)} />
       {ai !== null && <span data-testid="claude-checked" hidden />}
       <Studio settings={settings} update={update} />

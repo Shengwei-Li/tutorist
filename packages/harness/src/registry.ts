@@ -2,15 +2,15 @@ import { execText, which } from '@tutordesk/core';
 import { AcpSession, OPENCODE_ACP } from './acp.js';
 import { ClaudeCodeSession } from './claude.js';
 import { CodexSession } from './codex.js';
-import type { HarnessHealth, HarnessId, HarnessSession, McpLaunch, SessionStart } from './types.js';
+import type { CliHarnessId, HarnessHealth, HarnessId, HarnessSession, McpLaunch, SessionStart } from './types.js';
 
-export const HARNESSES: { id: HarnessId; label: string; program: string; login: string }[] = [
+export const HARNESSES: { id: CliHarnessId; label: string; program: string; login: string }[] = [
   { id: 'claude-code', label: 'Claude Code', program: 'claude', login: 'claude auth login' },
   { id: 'codex', label: 'Codex', program: 'codex', login: 'codex login' },
   { id: 'opencode', label: 'OpenCode', program: 'opencode', login: 'opencode auth login' },
 ];
 
-export function createSession(harness: HarnessId, opts: SessionStart): HarnessSession {
+export function createSession(harness: CliHarnessId, opts: SessionStart): HarnessSession {
   switch (harness) {
     case 'claude-code':
       return new ClaudeCodeSession(opts);
@@ -22,7 +22,7 @@ export function createSession(harness: HarnessId, opts: SessionStart): HarnessSe
 }
 
 /** Installed? Which version? Signed in? Without starting a session or spending anything. */
-export async function checkHarness(harness: HarnessId, env: NodeJS.ProcessEnv = process.env): Promise<HarnessHealth> {
+export async function checkHarness(harness: CliHarnessId, env: NodeJS.ProcessEnv = process.env): Promise<HarnessHealth> {
   const h = HARNESSES.find((x) => x.id === harness)!;
   const exe = await which(h.program, env);
   if (!exe) return { harness, installed: false, detail: `${h.label} is not installed.` };

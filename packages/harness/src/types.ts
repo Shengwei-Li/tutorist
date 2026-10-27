@@ -2,7 +2,10 @@
  * Conversational sessions with a local coding agent (appendix E.3). One interface for Claude Code,
  * Codex and ACP agents (OpenCode); TutorDesk's teaching tools reach the agent over MCP.
  */
-export type HarnessId = 'claude-code' | 'codex' | 'opencode';
+/** Local coding agents TutorDesk starts as processes. */
+export type CliHarnessId = 'claude-code' | 'codex' | 'opencode';
+/** 'api' is TutorDesk's own loop over a model reached by API key (H6). */
+export type HarnessId = CliHarnessId | 'api';
 
 /**
  * guarded: the agent reads the workspace and writes only through the tutordesk tools.
@@ -67,7 +70,7 @@ export interface HarnessSession {
 }
 
 export interface HarnessHealth {
-  harness: HarnessId;
+  harness: CliHarnessId;
   installed: boolean;
   version?: string;
   /** undefined when the harness gives no way to check without starting a session. */

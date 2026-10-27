@@ -69,20 +69,24 @@ export async function runSmoke(win: BrowserWindow, outDir: string): Promise<void
   if (fake) {
     await step('lesson: draft plan', async () => {
       await click('open-lesson-1');
-      await until(q('make-plan'), 5000);
-      await type('lesson-brief', 'Work on stating a clear position in the introduction.');
-      await click('make-plan');
-      const ok = await until(q('plan-total'), 30_000);
+      await until(q('thread-input'), 5000);
+      // The agent thread (a scripted model in fake mode) calls the real TutorDesk tools.
+      await type('thread-input', 'Plan this lesson. Her intros never state a position; work on that.');
+      await click('thread-send');
+      const ok = (await until(q('plan-total'), 30_000)) && (await until(`!${q('thread-stop')}`, 30_000));
       await shot('03-plan');
       return ok;
     });
-    await step('lesson: approve and generate', async () => {
+    await step('lesson: approve and write materials', async () => {
       await click('approve-plan');
-      // Four documents, each compiled during QA.
-      const ok = await until(`${q('run-log')} && ${q('run-log')}.innerText.includes('save · deck') && !${q('run-log')}.innerText.includes('◐')`, 240_000);
+      await until(q('write-materials'), 5000);
+      await click('write-materials');
+      await until(q('thread-stop'), 5000);
+      // Four documents, each checked and typeset by save_artifact.
+      const ok = await until(`!${q('thread-stop')}`, 240_000);
       await wait(800);
       await shot('04-generated');
-      return ok;
+      return ok && (await js<boolean>(`!!document.querySelector('[data-testid="tab-deck"] svg, [data-testid="tab-deck"] span')`));
     });
     for (const [kind, name] of [['handout', '05-handout'], ['worksheet', '06-worksheet'], ['deck', '07-deck']] as const) {
       await step(`lesson: view ${kind}`, async () => {

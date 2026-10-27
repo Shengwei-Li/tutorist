@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { app, BrowserWindow, nativeTheme, shell } from 'electron';
-import { registerIpc } from './services.js';
+import { closeThreads, registerIpc } from './services.js';
 import { runSmoke } from './smoke.js';
 
 const smokeDir = process.env.TUTORDESK_SMOKE_DIR ? path.resolve(process.env.TUTORDESK_SMOKE_DIR) : undefined;
@@ -50,6 +50,9 @@ app.whenReady().then(() => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 });
+
+// Agent processes must not outlive the app.
+app.on('before-quit', () => void closeThreads());
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();

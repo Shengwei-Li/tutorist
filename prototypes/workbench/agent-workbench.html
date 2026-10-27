@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TutorDesk Workbench</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+<style>
+/* Tokens copied from packages/ui/src/tokens.css so the mock matches the app. */
+:root{--bg:#fafaf9;--surface:#fff;--surface-2:#f3f4f4;--border:#e4e6e7;--border-strong:#cdd1d4;--text:#16191d;--text-2:#4b535c;--text-3:#7d858e;--accent:#24508f;--accent-hover:#1c4277;--accent-soft:#e8eef7;--accent-fg:#fff;--positive:#2f6b4f;--warning:#9a6212;--danger:#a63a32;--shadow-float:0 1px 2px rgb(0 0 0/.06),0 8px 24px rgb(0 0 0/.08);color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#111315;--surface:#17191c;--surface-2:#1e2125;--border:#2a2e33;--border-strong:#3a3f45;--text:#e7e9eb;--text-2:#a9b0b7;--text-3:#7a828a;--accent:#7fa6de;--accent-hover:#97b7e6;--accent-soft:#1d2a3d;--accent-fg:#0f1720;--positive:#6fb08f;--warning:#d19a4a;--danger:#e07a70;color-scheme:dark}}
+:root[data-theme=dark]{--bg:#111315;--surface:#17191c;--surface-2:#1e2125;--border:#2a2e33;--border-strong:#3a3f45;--text:#e7e9eb;--text-2:#a9b0b7;--text-3:#7a828a;--accent:#7fa6de;--accent-hover:#97b7e6;--accent-soft:#1d2a3d;--accent-fg:#0f1720;--positive:#6fb08f;--warning:#d19a4a;--danger:#e07a70;color-scheme:dark}
+
+*{box-sizing:border-box;margin:0}
+body{background:var(--bg);color:var(--text);font:14px/1.5 Inter,'PingFang SC','Microsoft YaHei UI',system-ui,sans-serif;font-feature-settings:'tnum' 1,'cv11' 1;-webkit-font-smoothing:antialiased;height:100vh;overflow:hidden}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;flex:none}
+
+.app{display:grid;grid-template-columns:232px minmax(420px,1fr) 440px;height:100vh}
+
+/* ── navigation ── */
+.nav{border-right:1px solid var(--border);display:flex;flex-direction:column;min-height:0}
+.brand{height:52px;display:flex;align-items:center;gap:10px;padding:0 16px;font-weight:600;letter-spacing:-.01em}
+.mono{width:22px;height:22px;border-radius:5px;background:var(--text);color:var(--bg);display:grid;place-items:center;font-size:11px;font-weight:600}
+.nav-sec{padding:6px 8px}
+.nav-label{font-size:12px;color:var(--text-3);padding:12px 8px 4px}
+.nav-item{display:flex;align-items:center;gap:10px;width:100%;padding:6px 8px;border-radius:6px;color:var(--text-2);text-align:left}
+.nav-item:hover{background:var(--surface-2);color:var(--text)}
+.nav-item.on{background:var(--surface-2);color:var(--text);font-weight:500}
+.nav-item .meta{margin-left:auto;font-size:12px;color:var(--text-3)}
+.sub{padding-left:22px}
+.sub .nav-item{font-size:13px;padding:5px 8px}
+.nav-foot{margin-top:auto;border-top:1px solid var(--border);padding:10px 16px;font-size:12px;color:var(--text-3);display:flex;justify-content:space-between}
+
+/* ── thread ── */
+.thread{display:flex;flex-direction:column;min-height:0;background:var(--surface)}
+.bar{height:52px;flex:none;display:flex;align-items:center;gap:12px;padding:0 20px;border-bottom:1px solid var(--border)}
+.crumb{font-size:13px;color:var(--text-3);white-space:nowrap}
+.crumb b{color:var(--text);font-weight:500}
+.bar .grow{flex:1}
+.seg{display:flex;border:1px solid var(--border);border-radius:6px;padding:2px;gap:2px}
+.seg button{padding:3px 10px;border-radius:4px;font-size:13px;color:var(--text-2)}
+.seg button.on{background:var(--surface-2);color:var(--text);font-weight:500}
+.select{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-2);padding:4px 8px;border-radius:6px}
+.select:hover{background:var(--surface-2)}
+
+.log{flex:1;overflow:auto;padding:28px 0 12px}
+.col{max-width:680px;margin:0 auto;padding:0 28px}
+.turn{margin-bottom:26px}
+.who{font-size:12px;color:var(--text-3);margin-bottom:6px;display:flex;gap:8px}
+.tutor{background:var(--surface-2);border-radius:10px;padding:10px 14px;color:var(--text)}
+.agent p{margin:0 0 10px;color:var(--text)}
+.agent p:last-child{margin-bottom:0}
+
+.steps{margin:4px 0 12px;border-left:1px solid var(--border);padding-left:14px}
+.step{display:flex;align-items:baseline;gap:10px;font-size:13px;color:var(--text-2);padding:3px 0}
+.step svg{width:14px;height:14px;position:relative;top:2px;color:var(--text-3)}
+.step .tool{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12px;color:var(--text-3);margin-left:auto}
+.step.warn{color:var(--warning)} .step.warn svg{color:var(--warning)}
+.step.ok svg{color:var(--positive)}
+
+.handoff{display:flex;align-items:center;gap:14px;border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-top:12px}
+.handoff .t{font-weight:500}
+.handoff .d{font-size:13px;color:var(--text-2)}
+.btn{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 12px;border-radius:6px;font-size:13px;font-weight:500;border:1px solid var(--border-strong);background:var(--surface);white-space:nowrap}
+.btn:hover{background:var(--surface-2)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-fg)}
+.btn.primary:hover{background:var(--accent-hover)}
+.btn.quiet{border-color:transparent}
+.ml{margin-left:auto}
+
+.approval{border:1px solid var(--border-strong);border-radius:10px;padding:12px 14px;margin-top:12px;background:var(--surface)}
+.approval .t{font-weight:500;margin-bottom:2px}
+.approval code{font:12px 'JetBrains Mono',monospace;color:var(--text-2);background:var(--surface-2);padding:1px 5px;border-radius:4px}
+.approval .row{display:flex;gap:8px;margin-top:10px}
+
+.typing{display:flex;gap:8px;align-items:center;font-size:13px;color:var(--text-3)}
+.typing i{width:5px;height:5px;border-radius:50%;background:var(--text-3);animation:b 1.2s infinite}
+.typing i:nth-child(2){animation-delay:.15s}.typing i:nth-child(3){animation-delay:.3s}
+@keyframes b{0%,80%,100%{opacity:.25}40%{opacity:1}}
+
+.composer{flex:none;padding:10px 0 18px}
+.recipes{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
+.recipe{font-size:13px;color:var(--text-2);border:1px solid var(--border);border-radius:6px;padding:4px 10px}
+.recipe:hover{border-color:var(--border-strong);color:var(--text)}
+.box{border:1px solid var(--border-strong);border-radius:10px;background:var(--surface);box-shadow:var(--shadow-float)}
+.box textarea{display:block;width:100%;border:0;resize:none;background:none;font:inherit;color:var(--text);padding:12px 14px 4px;min-height:52px;outline:none}
+.box textarea::placeholder{color:var(--text-3)}
+.box .row{display:flex;align-items:center;gap:4px;padding:6px 8px 8px}
+.icon-btn{width:30px;height:30px;display:grid;place-items:center;border-radius:6px;color:var(--text-3)}
+.icon-btn:hover{background:var(--surface-2);color:var(--text)}
+.hint{font-size:12px;color:var(--text-3);margin-left:4px}
+
+/* ── object panel ── */
+.panel{border-left:1px solid var(--border);display:flex;flex-direction:column;min-height:0;background:var(--bg)}
+.tabs{height:52px;flex:none;display:flex;align-items:flex-end;gap:2px;padding:0 16px;border-bottom:1px solid var(--border)}
+.tab{padding:0 10px 12px;font-size:13px;color:var(--text-3);border-bottom:2px solid transparent;margin-bottom:-1px;display:flex;gap:6px;align-items:center}
+.tab.on{color:var(--text);border-color:var(--text);font-weight:500}
+.tab .q{font-size:12px;color:var(--text-3);font-weight:500}
+.tab svg.ok{width:13px;height:13px;color:var(--positive)}
+.tab .q.warn{color:var(--warning)}
+.pbody{flex:1;overflow:auto;padding:20px}
+.status{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--text-2);margin-bottom:16px}
+.status b{color:var(--text);font-weight:500}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:10px}
+.card + .card{margin-top:12px}
+.card h3{font-size:16px;font-weight:600;letter-spacing:-.01em;padding:16px 16px 4px}
+.card .lede{padding:0 16px 14px;color:var(--text-2);font-size:13px}
+.sect{border-top:1px solid var(--border);padding:12px 16px}
+.sect h4{font-size:12px;font-weight:500;color:var(--text-3);margin-bottom:8px}
+.obj{display:grid;grid-template-columns:18px 1fr;gap:4px 8px;font-size:13px;margin-bottom:8px}
+.obj .n{color:var(--text-3)}
+.obj .pass{grid-column:2;color:var(--text-3);font-size:12px}
+.stage{display:grid;grid-template-columns:34px 1fr auto;gap:10px;align-items:baseline;padding:6px 0;font-size:13px;border-bottom:1px dashed var(--border)}
+.stage:last-child{border-bottom:0}
+.stage .m{color:var(--text-3);text-align:right}
+.stage .what{color:var(--text)}
+.stage .out{font-size:12px;color:var(--text-3)}
+.total{display:flex;justify-content:space-between;font-size:12px;color:var(--text-3);padding-top:8px}
+.err{font-size:13px;padding:4px 0;display:grid;grid-template-columns:auto 1fr;gap:10px}
+.err code{font:12px 'JetBrains Mono',monospace;color:var(--text-3)}
+.err q{color:var(--text-2);font-style:normal}
+.err q::before,.err q::after{content:'"'}
+.actions{display:flex;gap:8px;padding:14px 16px;border-top:1px solid var(--border)}
+
+.pdf{background:var(--surface-2);border-radius:10px;padding:18px;display:grid;place-items:center}
+.page{width:100%;aspect-ratio:1/1.414;background:#fff;border:1px solid var(--border);box-shadow:var(--shadow-float);padding:22px 24px;color:#16191d;font-size:9px;line-height:1.5}
+.page .h{font-size:13px;font-weight:600;margin-bottom:2px}
+.page .s{color:#7d858e;margin-bottom:10px}
+.page .ln{height:6px;background:#eceeef;border-radius:2px;margin:6px 0}
+.page .ln.w7{width:70%}.page .ln.w5{width:50%}.page .ln.w9{width:90%}
+.page .bx{border:1px solid #cdd1d4;border-radius:3px;padding:8px;margin:10px 0}
+
+.theme{position:fixed;right:14px;bottom:14px;font-size:12px;color:var(--text-3);border:1px solid var(--border);border-radius:6px;padding:4px 8px;background:var(--surface)}
+</style>
+</head>
+<body>
+<svg style="display:none" xmlns="http://www.w3.org/2000/svg">
+  <symbol id="i-today" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 9.5h17M8 3v4M16 3v4"/></symbol>
+  <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5M16 4.8a3.5 3.5 0 0 1 0 6.4M18 14.8c1.8.7 3 2.4 3.5 5.2"/></symbol>
+  <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5v-15Z"/><path d="M4 20.5A2.5 2.5 0 0 0 6.5 23H20v-5"/></symbol>
+  <symbol id="i-pen" viewBox="0 0 24 24"><path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16v4Z"/><path d="m13.5 6.5 4 4"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/></symbol>
+  <symbol id="i-read" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m4.5 12.5 5 5 10-11"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 3 2 20h20L12 3Z"/><path d="M12 10v4M12 17.2v.1"/></symbol>
+  <symbol id="i-save" viewBox="0 0 24 24"><path d="M5 3h11l3 3v15H5V3Z"/><path d="M8 3v5h7M8 21v-7h8v7"/></symbol>
+  <symbol id="i-clip" viewBox="0 0 24 24"><path d="m20 11.5-8.3 8.3a5 5 0 0 1-7-7l8.6-8.6a3.3 3.3 0 0 1 4.7 4.7l-8.6 8.6a1.7 1.7 0 0 1-2.4-2.4l7.9-7.9"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24"><path d="M12 19V5M5.5 11.5 12 5l6.5 6.5"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="m7 10 5 5 5-5"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></symbol>
+  <symbol id="i-stop" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="1.5"/></symbol>
+</svg>
+
+<div class="app">
+  <!-- ── navigation: teaching objects, not conversations ── -->
+  <aside class="nav">
+    <div class="brand"><span class="mono">NE</span>Northbridge English</div>
+    <div class="nav-sec">
+      <button class="nav-item"><svg><use href="#i-today"/></svg>Today<span class="meta">3</span></button>
+      <button class="nav-item"><svg><use href="#i-users"/></svg>Students</button>
+    </div>
+    <div class="nav-label">Students</div>
+    <div class="nav-sec" style="padding-top:0">
+      <button class="nav-item on">Mina Park<span class="meta">IELTS 6.5</span></button>
+      <div class="sub">
+        <button class="nav-item"><svg><use href="#i-book"/></svg>L03 · Linking ideas</button>
+        <button class="nav-item on"><svg><use href="#i-book"/></svg>L04 · Taking a position</button>
+        <button class="nav-item"><svg><use href="#i-pen"/></svg>Essay 24 Oct<span class="meta">new</span></button>
+      </div>
+      <button class="nav-item">Leo Zhang<span class="meta">PTE 65</span></button>
+      <button class="nav-item">Aisha Rahman<span class="meta">IELTS 7.0</span></button>
+    </div>
+    <div class="nav-foot"><span>Claude Code · signed in</span><button aria-label="Settings"><svg><use href="#i-gear"/></svg></button></div>
+  </aside>
+
+  <!-- ── thread: the conversation about this lesson ── -->
+  <main class="thread">
+    <div class="bar">
+      <div class="crumb">Mina Park / <b>Lesson 4 · Thu 28 Oct · 60 min</b></div>
+      <div class="grow"></div>
+      <div class="seg" role="tablist" aria-label="Agent">
+        <button class="on">Claude Code</button><button>Codex</button><button>API</button>
+      </div>
+      <button class="select" title="The agent reads everything and saves only through TutorDesk"><svg><use href="#i-lock"/></svg>Guarded<svg><use href="#i-chev"/></svg></button>
+    </div>
+
+    <div class="log">
+      <div class="col">
+        <div class="turn">
+          <div class="who">You · 21:04</div>
+          <div class="tutor">Plan Thursday's lesson. Her last essay still hides the position until the conclusion — that should be the focus. Keep it to 60 minutes.</div>
+        </div>
+
+        <div class="turn">
+          <div class="who">Claude Code · 21:04</div>
+          <div class="steps">
+            <div class="step"><svg><use href="#i-read"/></svg>Read Mina's profile, notes and 3 open errors<span class="tool">get_student_context</span></div>
+            <div class="step"><svg><use href="#i-read"/></svg>Read the plan-card format and IELTS facts<span class="tool">get_artifact_schema</span></div>
+            <div class="step warn"><svg><use href="#i-alert"/></svg>Plan card: stages add up to 65 min, not 60<span class="tool">save_plan</span></div>
+            <div class="step ok"><svg><use href="#i-check"/></svg>Saved the plan card — checks passed<span class="tool">save_plan</span></div>
+          </div>
+          <div class="agent">
+            <p>The plan centres on stating a clear position in the first paragraph, using two of her own sentences from the 19 Oct essay as the weak examples. Retrieval opens with last week's linking errors; the check at the end has her rewrite an introduction in five minutes.</p>
+            <p>I trimmed the guided practice by five minutes so the stages add up to 60.</p>
+          </div>
+          <div class="handoff">
+            <div><div class="t">Plan card is ready for your approval</div><div class="d">5 stages · 2 objectives · targets W-TR-POS, W-CC-CONC</div></div>
+            <button class="btn ml">Open plan</button>
+          </div>
+        </div>
+
+        <div class="turn">
+          <div class="who">You · 21:07</div>
+          <div class="tutor">Approved. Write the handout and the slides.</div>
+        </div>
+
+        <div class="turn">
+          <div class="who">Claude Code · 21:07</div>
+          <div class="steps">
+            <div class="step ok"><svg><use href="#i-check"/></svg>Handout saved and typeset — all checks passed<span class="tool">save_artifact</span></div>
+            <div class="step warn"><svg><use href="#i-alert"/></svg>Slides: frame 4 overflows by 18pt<span class="tool">save_artifact</span></div>
+          </div>
+          <div class="typing"><i></i><i></i><i></i>Splitting frame 4 into two</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="composer">
+      <div class="col">
+        <div class="recipes">
+          <button class="recipe">Plan this lesson</button>
+          <button class="recipe">Write the materials</button>
+          <button class="recipe">Make it easier</button>
+          <button class="recipe">Review the essay</button>
+          <button class="recipe">Import a PDF</button>
+        </div>
+        <div class="box">
+          <textarea placeholder="Tell Claude Code what to change…"></textarea>
+          <div class="row">
+            <button class="icon-btn" aria-label="Attach"><svg><use href="#i-clip"/></svg></button>
+            <span class="hint">Working · 1 min 12 s</span>
+            <button class="btn ml"><svg><use href="#i-stop"/></svg>Stop</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- ── object panel: what the conversation produces, and the tutor's gates ── -->
+  <section class="panel">
+    <div class="tabs">
+      <button class="tab on" title="Approved">Plan<svg class="ok"><use href="#i-check"/></svg></button>
+      <button class="tab" title="Not written yet">Script</button>
+      <button class="tab" title="All checks passed">Handout<svg class="ok"><use href="#i-check"/></svg></button>
+      <button class="tab" title="Not written yet">Worksheet</button>
+      <button class="tab" title="1 problem to fix">Slides<span class="q warn">1</span></button>
+    </div>
+    <div class="pbody">
+      <div class="status"><svg style="color:var(--positive)"><use href="#i-check"/></svg><span><b>Approved by you</b> at 21:07 · written by Claude Code</span></div>
+
+      <div class="card">
+        <h3>State your position in the first paragraph</h3>
+        <p class="lede">Mina's ideas are relevant but her view appears only in the conclusion, which holds Task Response at 5.5.</p>
+        <div class="sect">
+          <h4>Objectives</h4>
+          <div class="obj"><span class="n">1</span><span>Write an introduction whose last sentence states a clear, arguable position.</span><span class="pass">Pass: 2 of 2 rewritten introductions do this</span></div>
+          <div class="obj"><span class="n">2</span><span>Keep the same position through the body and conclusion.</span><span class="pass">Pass: no new view appears in the conclusion</span></div>
+        </div>
+        <div class="sect">
+          <h4>Stages</h4>
+          <div class="stage"><span class="m">8′</span><span class="what">Retrieval: fix last week's linking errors</span><span class="out">slides</span></div>
+          <div class="stage"><span class="m">12′</span><span class="what">Compare her intro with a revised one</span><span class="out">handout · slides</span></div>
+          <div class="stage"><span class="m">15′</span><span class="what">Guided: position sentences for two prompts</span><span class="out">worksheet</span></div>
+          <div class="stage"><span class="m">17′</span><span class="what">Independent: full introduction, timed</span><span class="out">worksheet</span></div>
+          <div class="stage"><span class="m">8′</span><span class="what">Check and homework</span><span class="out">slides</span></div>
+          <div class="total"><span>Student talks or writes for 38 of 60 minutes</span><span>60′</span></div>
+        </div>
+        <div class="sect">
+          <h4>Her errors this lesson targets</h4>
+          <div class="err"><code>W-TR-POS</code><q>more and more people think crime is a big problem</q></div>
+          <div class="err"><code>W-CC-CONC</code><q>but education is most important</q></div>
+        </div>
+        <div class="actions">
+          <button class="btn">Edit plan</button>
+          <button class="btn quiet ml">History</button>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:12px">
+        <div class="sect" style="border-top:0"><h4>Handout preview</h4>
+          <div class="pdf"><div class="page">
+            <div class="h">Say what you think — early</div><div class="s">Mina Park · Lesson 4 · IELTS Academic</div>
+            <div class="ln w9"></div><div class="ln w7"></div>
+            <div class="bx"><div class="ln w9"></div><div class="ln w5"></div></div>
+            <div class="ln w9"></div><div class="ln"></div><div class="ln w7"></div>
+          </div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<button class="theme" onclick="const r=document.documentElement;r.dataset.theme=r.dataset.theme==='dark'?'light':'dark'">Light / dark</button>
+</body>
+</html>

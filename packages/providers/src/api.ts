@@ -80,59 +80,63 @@ function safe<I>(fn: (input: I) => Promise<string>): (input: I) => Promise<strin
   };
 }
 
+/** Read-only, path-jailed workspace tools: read_file, list_dir, search_text (shared with chat sessions). */
+export function workspaceReadTools(root: string): ToolSet {
+  const tools: ToolSet = {};
+  tools.read_file = tool({
+    description: 'Read a UTF-8 text file inside the working folder. Path is relative to that folder.',
+    inputSchema: z.object({ path: z.string() }),
+    execute: safe(async ({ path: p }: { path: string }) => {
+      const abs = await resolveInside(root, p);
+      const text = await readFile(abs, 'utf8');
+      return text.length > 60_000 ? `${text.slice(0, 60_000)}\n…[truncated]` : text;
+    }),
+  });
+  tools.list_dir = tool({
+    description: 'List files and folders inside the working folder.',
+    inputSchema: z.object({ path: z.string().default('.') }),
+    execute: safe(async ({ path: p }: { path: string }) => {
+      const abs = await resolveInside(root, p);
+      const names = await readdir(abs);
+      const rows = await Promise.all(names.filter((n) => !n.startsWith('.')).map(async (n) => ((await stat(path.join(abs, n))).isDirectory() ? `${n}/` : n)));
+      return rows.join('\n');
+    }),
+  });
+  tools.search_text = tool({
+    description: 'Search text files under a folder for a case-insensitive substring; returns path:line: text.',
+    inputSchema: z.object({ query: z.string().min(2), path: z.string().default('.') }),
+    execute: safe(async ({ query, path: p }: { query: string; path: string }) => {
+      const start = await resolveInside(root, p);
+      const hits: string[] = [];
+      const walk = async (dir: string): Promise<void> => {
+        for (const n of await readdir(dir)) {
+          if (n.startsWith('.') || hits.length >= 50) continue;
+          const abs = path.join(dir, n);
+          if ((await stat(abs)).isDirectory()) await walk(abs);
+          else if (/\.(md|txt|json|jsonl|tex)$/i.test(n)) {
+            const lines = (await readFile(abs, 'utf8')).split(/\r?\n/);
+            lines.forEach((l, i) => {
+              if (hits.length < 50 && l.toLowerCase().includes(query.toLowerCase())) hits.push(`${toPosixRelative(root, abs)}:${i + 1}: ${l.slice(0, 200)}`);
+            });
+          }
+        }
+      };
+      await walk(start);
+      return hits.join('\n') || 'No matches.';
+    }),
+  });
+  return tools;
+}
+
 /** Path-jailed tools for open-ended tasks; writes are limited to the spec's writable globs (SPEC §7.8). */
 function buildTools(spec: AgentRunSpec, emit: (e: AgentEvent) => void): ToolSet {
   const enabled = new Set(spec.tools ?? DEFAULT_TOOLS[spec.taskType]);
   const root = spec.workspaceRoot;
+  const read = workspaceReadTools(root);
   const tools: ToolSet = {};
-  if (enabled.has('Read')) {
-    tools.read_file = tool({
-      description: 'Read a UTF-8 text file inside the student folder. Path is relative to the folder.',
-      inputSchema: z.object({ path: z.string() }),
-      execute: safe(async ({ path: p }: { path: string }) => {
-        const abs = await resolveInside(root, p);
-        const text = await readFile(abs, 'utf8');
-        return text.length > 60_000 ? `${text.slice(0, 60_000)}\n…[truncated]` : text;
-      }),
-    });
-  }
-  if (enabled.has('Glob')) {
-    tools.list_dir = tool({
-      description: 'List files and folders inside a folder of the student workspace.',
-      inputSchema: z.object({ path: z.string().default('.') }),
-      execute: safe(async ({ path: p }: { path: string }) => {
-        const abs = await resolveInside(root, p);
-        const names = await readdir(abs);
-        const rows = await Promise.all(names.filter((n) => !n.startsWith('.')).map(async (n) => ((await stat(path.join(abs, n))).isDirectory() ? `${n}/` : n)));
-        return rows.join('\n');
-      }),
-    });
-  }
-  if (enabled.has('Grep')) {
-    tools.search_text = tool({
-      description: 'Search text files under a folder for a case-insensitive substring; returns path:line: text.',
-      inputSchema: z.object({ query: z.string().min(2), path: z.string().default('.') }),
-      execute: safe(async ({ query, path: p }: { query: string; path: string }) => {
-        const start = await resolveInside(root, p);
-        const hits: string[] = [];
-        const walk = async (dir: string): Promise<void> => {
-          for (const n of await readdir(dir)) {
-            if (n.startsWith('.') || hits.length >= 50) continue;
-            const abs = path.join(dir, n);
-            if ((await stat(abs)).isDirectory()) await walk(abs);
-            else if (/\.(md|txt|json|jsonl|tex)$/i.test(n)) {
-              const lines = (await readFile(abs, 'utf8')).split(/\r?\n/);
-              lines.forEach((l, i) => {
-                if (hits.length < 50 && l.toLowerCase().includes(query.toLowerCase())) hits.push(`${toPosixRelative(root, abs)}:${i + 1}: ${l.slice(0, 200)}`);
-              });
-            }
-          }
-        };
-        await walk(start);
-        return hits.join('\n') || 'No matches.';
-      }),
-    });
-  }
+  if (enabled.has('Read')) tools.read_file = read.read_file!;
+  if (enabled.has('Glob')) tools.list_dir = read.list_dir!;
+  if (enabled.has('Grep')) tools.search_text = read.search_text!;
   if (enabled.has('Write')) {
     tools.write_file = tool({
       description: 'Create or overwrite a UTF-8 file. Only paths the task allows can be written.',
