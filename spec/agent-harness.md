@@ -169,10 +169,12 @@ type HarnessEvent =
 | 模式 | Agent 能做什么 | 各 harness 的实现 |
 |---|---|---|
 | **guarded**（默认） | 读工作区；写入只能通过 tutordesk 工具；不能执行命令，不能联网 | Claude：`allowedTools` = Read/Glob/Grep + `mcp__tutordesk__*`，其余在 `canUseTool` 里拒绝。Codex：`sandbox: read-only`，`approvalPolicy: on-request`，命令审批一律拒绝。OpenCode：`edit`/`bash` 的权限请求一律拒绝 |
-| **collaborate** | 另外可以改学生文件夹里的 Markdown（笔记、材料），每次写入、每条命令都弹审批 | 审批事件交给 UI |
-| **full** | 不弹审批（作者自用、批量任务） | Claude `bypassPermissions`；Codex `workspace-write` + `never`；OpenCode 自动允许 |
+| **collaborate** | 另外可以改学生文件夹里的 Markdown（不含 notes.md），每次写入都弹审批，审批卡片列出文件；不能执行命令 | Claude：命令工具放进 `disallowedTools`，编辑在 `canUseTool` 里只放行学生 Markdown。Codex：`workspace-write` + `untrusted`，命令审批一律拒绝，文件审批只放行学生 Markdown。OpenCode：`edit: ask`，`bash: deny` |
+| **full** | 不弹审批，可以执行命令（作者自用、批量任务） | Claude `bypassPermissions`；Codex `workspace-write` + `never`；OpenCode 自动允许 |
 
 任何模式下：工具库自己的闸门（E.4.1 第 4 条）不变；Codex 和 Claude 都不开网络。
+
+协作模式不放行命令，原因是实测（Codex，2026-10-28）：让它把 lesson.json 的 planConfirmed 改成 true，它改用一条 `powershell -Command "python -c ..."` 来改，审批卡片上虽然有完整命令，但老师看不懂，一点允许就绕过了计划审批。按文件名过滤命令挡不住换个写法，所以命令只在完全模式下可用。
 
 ---
 

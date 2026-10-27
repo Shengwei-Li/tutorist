@@ -48,11 +48,16 @@ export async function stopProcess(child: ChildProcess, timeoutMs = 5000): Promis
 /** What an agent is about to do, as far as permissions care (appendix E.6). */
 export type ActionKind = 'read' | 'toolbox' | ApprovalKind;
 
-/** The permission table: reading and the tutordesk tools are always fine; the rest depends on the mode. */
+/**
+ * The permission table: reading and the tutordesk tools are always fine; the rest depends on the mode.
+ * Commands and network need full mode: a command can rewrite any file (lesson.json included), and a
+ * tutor cannot judge a script one-liner on an approval card.
+ */
 export function decide(mode: PermissionMode, kind: ActionKind): ApprovalDecision | 'ask' {
   if (kind === 'read' || kind === 'toolbox') return 'allow';
   if (mode === 'full') return 'allow';
   if (mode === 'guarded') return 'deny';
+  if (kind === 'command' || kind === 'network') return 'deny';
   return 'ask';
 }
 
@@ -86,6 +91,8 @@ export function agentEnv(extra?: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 }
 
 export const GUARDED_DENIAL = 'Not allowed in this workspace: read files freely, but save lesson documents, reviews, materials and notes with the tutordesk tools.';
+
+export const COMMAND_DENIAL = 'Commands are not allowed in this workspace. Use the tutordesk tools; Markdown in a student folder can be edited directly with the tutor\'s approval.';
 
 /**
  * Turn bookkeeping and approvals shared by every adapter. Subclasses start the agent, translate its

@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { query, type CanUseTool, type Query, type SDKMessage, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import { which } from '@tutordesk/core';
-import { AsyncQueue, BaseSession, GUARDED_DENIAL, editableByAgent, splitToolName, type ActionKind } from './session-base.js';
+import { AsyncQueue, BaseSession, COMMAND_DENIAL, GUARDED_DENIAL, editableByAgent, splitToolName, type ActionKind } from './session-base.js';
 import type { SessionStart, UserTurn } from './types.js';
 
 /** Variables that make a nested CLI think it runs inside another Claude Code session. */
@@ -111,7 +111,7 @@ export class ClaudeCodeSession extends BaseSession {
         mcpServers: { tutordesk: { type: 'stdio', command: this.opts.mcp.command, args: this.opts.mcp.args, env: this.opts.mcp.env, timeout: 300_000 } },
         // Reads inside the workspace need no permission; reads elsewhere reach canUseTool and are refused.
         allowedTools: ['mcp__tutordesk'],
-        disallowedTools: mode === 'guarded' ? [...EDIT_TOOLS, ...COMMAND_TOOLS, ...NETWORK_TOOLS] : [...NETWORK_TOOLS],
+        disallowedTools: mode === 'guarded' ? [...EDIT_TOOLS, ...COMMAND_TOOLS, ...NETWORK_TOOLS] : mode === 'collaborate' ? [...COMMAND_TOOLS, ...NETWORK_TOOLS] : [...NETWORK_TOOLS],
         permissionMode: mode === 'full' ? 'bypassPermissions' : 'default',
         allowDangerouslySkipPermissions: mode === 'full',
         canUseTool: this.canUseTool,
@@ -136,7 +136,8 @@ export class ClaudeCodeSession extends BaseSession {
     }
     const title = kind === 'command' ? `Run: ${String(input.command ?? toolName).slice(0, 200)}` : kind === 'edit' ? `Edit ${String(input.file_path ?? '')}` : `Use ${toolName}`;
     const decision = await this.authorize(kind, title, kind === 'command' ? String(input.description ?? '') || undefined : undefined);
-    return decision === 'allow' ? { behavior: 'allow', updatedInput: input } : { behavior: 'deny', message: this.opts.mode === 'guarded' ? GUARDED_DENIAL : 'The tutor declined this.' };
+    if (decision === 'allow') return { behavior: 'allow', updatedInput: input };
+    return { behavior: 'deny', message: this.opts.mode === 'guarded' ? GUARDED_DENIAL : kind === 'command' ? COMMAND_DENIAL : 'The tutor declined this.' };
   };
 
   protected async beginTurn(input: UserTurn): Promise<void> {

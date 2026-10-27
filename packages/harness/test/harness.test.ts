@@ -55,7 +55,10 @@ describe('permission policy', () => {
   it('always allows reading and the toolbox; the mode decides the rest', () => {
     expect(decide('guarded', 'toolbox')).toBe('allow');
     expect(decide('guarded', 'edit')).toBe('deny');
-    expect(decide('collaborate', 'command')).toBe('ask');
+    expect(decide('collaborate', 'edit')).toBe('ask');
+    // A command can rewrite any file; it needs full mode.
+    expect(decide('collaborate', 'command')).toBe('deny');
+    expect(decide('collaborate', 'network')).toBe('deny');
     expect(decide('full', 'network')).toBe('allow');
   });
 
@@ -67,7 +70,7 @@ describe('permission policy', () => {
 
   it('gives OpenCode matching permission rules', () => {
     expect(JSON.parse(opencodePermissionConfig('guarded')).permission).toEqual({ edit: 'deny', bash: 'deny', webfetch: 'deny' });
-    expect(JSON.parse(opencodePermissionConfig('collaborate')).permission.edit).toBe('ask');
+    expect(JSON.parse(opencodePermissionConfig('collaborate')).permission).toEqual({ edit: 'ask', bash: 'deny', webfetch: 'deny' });
   });
 });
 
@@ -99,7 +102,7 @@ describe('CodexSession (app-server protocol)', () => {
     expect(events).toContainEqual({ type: 'text', delta: 'decision=decline' });
   });
 
-  it('asks the tutor in collaborate mode and passes the answer back', async () => {
+  it('declines commands in collaborate mode too, without asking', async () => {
     const s = new CodexSession(opts('collaborate'), { executable: node('codex') });
     sessions.push(s);
     await s.start();
@@ -107,8 +110,8 @@ describe('CodexSession (app-server protocol)', () => {
     const events = await collect(s.send({ text: 'approve this' }), (e) => {
       if (e.type === 'approval') s.respond(e.requestId, 'allow');
     });
-    expect(events).toContainEqual(expect.objectContaining({ type: 'approval', kind: 'command', title: 'Run: del notes.md' }));
-    expect(events).toContainEqual({ type: 'text', delta: 'decision=accept' });
+    expect(events.some((e) => e.type === 'approval')).toBe(false);
+    expect(events).toContainEqual({ type: 'text', delta: 'decision=decline' });
   });
 
   it('interrupts a running turn', async () => {

@@ -49,8 +49,10 @@ export function classify(kind: ToolKind | null | undefined, title: string): Acti
  * cannot edit or run anything, so the only way to write is the tutordesk toolbox.
  */
 export function opencodePermissionConfig(mode: PermissionMode): string {
-  const rule = mode === 'guarded' ? 'deny' : mode === 'collaborate' ? 'ask' : 'allow';
-  return JSON.stringify({ permission: { edit: rule, bash: rule, webfetch: mode === 'full' ? 'allow' : 'deny' } });
+  const edit = mode === 'guarded' ? 'deny' : mode === 'collaborate' ? 'ask' : 'allow';
+  // Commands need full mode (see decide()).
+  const other = mode === 'full' ? 'allow' : 'deny';
+  return JSON.stringify({ permission: { edit, bash: other, webfetch: other } });
 }
 
 export interface AcpAgentSpec {

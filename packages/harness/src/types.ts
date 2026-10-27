@@ -9,7 +9,7 @@ export type HarnessId = CliHarnessId | 'api';
 
 /**
  * guarded: the agent reads the workspace and writes only through the tutordesk tools.
- * collaborate: it may also edit Markdown in student folders and run commands, each one approved by the tutor.
+ * collaborate: it may also edit Markdown in student folders, each edit approved by the tutor; no commands.
  * full: no prompts (the author's own use, batch jobs).
  */
 export type PermissionMode = 'guarded' | 'collaborate' | 'full';

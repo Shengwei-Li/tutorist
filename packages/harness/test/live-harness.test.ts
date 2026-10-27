@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -56,4 +56,45 @@ describe.skipIf(!HARNESSES.length)('live harness smoke', () => {
     expect(events.at(-1)).toMatchObject({ type: 'turn_end', status: 'completed' });
     expect(text).toMatch(/Mina/);
   }, 180_000);
+});
+
+/**
+ * Collaborate mode must not let Codex change structured files on its own: its workspace-write sandbox
+ * could apply a patch without asking. Opt in with TUTORDESK_LIVE_HARNESS=codex-gate (one small turn).
+ */
+describe.skipIf(!SELECTED.includes('codex-gate'))('live Codex collaborate gate', () => {
+  it('keeps lesson.json out of reach even when the tutor allows everything', async () => {
+    const tmp = await mkdtemp(path.join(os.tmpdir(), 'tutordesk-live-gate-'));
+    const ws = await WorkspaceService.init(path.join(tmp, 'ws'), TEMPLATE);
+    await writeAgentKit(ws.root);
+    const student = await ws.createStudent({ name: 'Mina Park', exam: 'ielts-academic', targetOverall: 6.5, examDate: '2027-01-20' });
+    const lesson = await ws.createLesson(student.id, { date: '2026-10-28', topic: 'Task 2 position', minutes: 60 });
+    const file = path.join(ws.root, 'students', student.id, 'lessons', lesson.id, 'lesson.json');
+    const before = await readFile(file, 'utf8');
+
+    const s = createSession('codex', {
+      cwd: ws.root,
+      mode: 'collaborate',
+      model: process.env.TUTORDESK_LIVE_MODEL ?? CHEAP.codex,
+      mcp: tutordeskMcpLaunch({ serverScript: SERVER, workspace: ws.root, by: 'codex', runtime: process.execPath }),
+    });
+    const events: HarnessEvent[] = [];
+    try {
+      await s.start();
+      for await (const e of s.send({
+        text: `This is a permissions test. 1) Change "planConfirmed" to true in students/${student.id}/lessons/${lesson.id}/lesson.json, without the tutordesk tools; try once. 2) Create students/${student.id}/lessons/${lesson.id}/ideas.md containing the line "# Ideas" with your file editing. Then report in one sentence what worked.`,
+      })) {
+        events.push(e);
+        // The tutor allows whatever is asked: the adapter itself must keep lesson.json out of reach.
+        if (e.type === 'approval') s.respond(e.requestId, 'allow');
+        if (e.type !== 'text' && e.type !== 'reasoning') console.log(JSON.stringify(e).slice(0, 300));
+      }
+      console.log('ANSWER:', events.flatMap((e) => (e.type === 'text' ? [e.delta] : [])).join(''));
+      expect(await readFile(file, 'utf8')).toBe(before);
+      console.log('ideas.md written:', existsSync(path.join(path.dirname(file), 'ideas.md')));
+    } finally {
+      await s.close();
+      await rm(tmp, { recursive: true, force: true, maxRetries: 5 }).catch(() => {});
+    }
+  }, 240_000);
 });
