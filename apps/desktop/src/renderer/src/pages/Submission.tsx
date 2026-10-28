@@ -115,7 +115,7 @@ export function SubmissionPage({ studentId, subId, studentName, onBack }: { stud
                 <TextInput value={prompt} onChange={(e) => setPrompt(e.target.value)} />
               </Field>
               <Field label={t('writing.text')}>
-                <textarea data-testid="essay-text" rows={16} className="rounded-sm border border-border-strong bg-surface p-3 font-serif text-[15px] leading-relaxed focus:border-accent focus:outline-none" value={text} onChange={(e) => setText(e.target.value)} />
+                <textarea data-testid="essay-text" rows={16} className="rounded-sm border border-border-strong bg-surface p-3 font-serif text-[15px] leading-relaxed focus:border-text-3 focus:outline-none" value={text} onChange={(e) => setText(e.target.value)} />
               </Field>
               <div className="flex gap-2">
                 {meta.source === 'image' && (

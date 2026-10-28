@@ -129,9 +129,14 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Keyboard focus on buttons and links; text fields show focus through their own border. */
 :focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
+}
+
+:is(input, textarea, select, [contenteditable]):focus-visible {
+  outline: none;
 }
 
 ::selection {

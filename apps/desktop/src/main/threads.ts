@@ -54,6 +54,8 @@ export class ThreadService {
   private live = new Map<string, Live>();
   /** open() calls in flight per subject, so a double mount does not create two threads. */
   private opening = new Map<string, Promise<ThreadView>>();
+  /** What the tutor did outside the conversation (confirmed a card…), told to the agent with the next message. */
+  private notes = new Map<string, string[]>();
 
   constructor(private readonly deps: ThreadDeps) {}
 
@@ -85,11 +87,11 @@ export class ThreadService {
 
   private async openNow(subject: ThreadSubject): Promise<ThreadView> {
     const store = await this.store();
-    const filter = subject.type === 'lesson' ? { studentId: subject.studentId, lessonId: subject.lessonId } : { studentId: subject.studentId };
+    const filter = subject.type === 'lesson' ? { studentId: subject.studentId, lessonId: subject.lessonId } : subject.type === 'workspace' ? {} : { studentId: subject.studentId };
     const existing = (await store.list(filter)).find((t) => JSON.stringify(t.subject) === JSON.stringify(subject));
     if (existing) return this.view(existing);
     const s = await loadSettings();
-    const title = subject.type === 'lesson' ? subject.lessonId : subject.type === 'submission' ? subject.submissionId : subject.studentId;
+    const title = subject.type === 'lesson' ? subject.lessonId : subject.type === 'submission' ? subject.submissionId : subject.type === 'student' ? subject.studentId : 'workspace';
     return this.view(await store.create({ title, subject, harness: s.agent, mode: s.agentMode }));
   }
 
@@ -138,8 +140,8 @@ export class ThreadService {
     const w = await this.deps.ws();
     const s = await loadSettings();
     const subject = t.subject as ThreadSubject;
-    const profile = await w.readProfile(subject.studentId).catch(() => null);
-    const instructions = subjectInstructions(subject, { student: profile?.ok ? profile.value.name : undefined });
+    const profile = subject.type === 'workspace' ? null : await w.readProfile(subject.studentId).catch(() => null);
+    const instructions = `${subjectInstructions(subject, { student: profile?.ok ? profile.value.name : undefined })} ${todayLine()}`;
     const base = { cwd: w.root, mode: t.mode, resume, instructions, mcp: { command: '', args: [] as string[] } };
 
     let session: HarnessSession;
@@ -195,7 +197,14 @@ export class ThreadService {
       l.running = false;
       throw err;
     }
-    void this.pump(threadId, l, session, text);
+    const notes = this.notes.get(threadId) ?? [];
+    this.notes.delete(threadId);
+    void this.pump(threadId, l, session, notes.length ? `[TutorDesk: ${notes.join(' ')} ${todayLine()}]\n\n${text}` : text);
+  }
+
+  /** Record something the tutor did outside the conversation, for the agent to hear with the next message. */
+  async note(threadId: string, text: string): Promise<void> {
+    this.notes.set(threadId, [...(this.notes.get(threadId) ?? []), text]);
   }
 
   private async pump(threadId: string, l: Live, session: HarnessSession, text: string): Promise<void> {
@@ -326,6 +335,13 @@ export function toolTarget(input: unknown): string | undefined {
 
 function now(): string {
   return new Date().toISOString();
+}
+
+/** Agents schedule lessons from relative dates ("next Tuesday"), so they need the tutor's local date. */
+function todayLine(): string {
+  const d = new Date();
+  const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return `Today is ${d.toLocaleDateString('en-GB', { weekday: 'long' })} ${iso}.`;
 }
 
 function labelOf(agent: AgentId): string {

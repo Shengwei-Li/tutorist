@@ -24,7 +24,7 @@ function fromEntry(e: ThreadEntry, i: number): Block {
   }
 }
 
-const SAVES = /^(save_|export_|create_lesson|append_note)/;
+const SAVES = /^(save_|export_|create_lesson|append_note|propose_)/;
 
 function targetOf(input: unknown): string | undefined {
   if (!input || typeof input !== 'object') return undefined;

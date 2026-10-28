@@ -1,7 +1,7 @@
 import { appendFile, mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { z } from 'zod';
-import { resolveInside, writeJson, writeFileAtomic, type WorkspaceService } from '@tutordesk/core';
+import { ProfileChanges, ProposalStore, ProposedLesson, ProposedStudent, StudentProfile, draftProfile, mergeProfile, resolveInside, writeJson, writeFileAtomic, type WorkspaceService } from '@tutordesk/core';
 import { ARTIFACT_SCHEMAS, ArtifactKind, LessonPlan, RubricReview, WritingReview, type ArtifactDoc } from '@tutordesk/core/artifacts';
 import { ArtifactStudio, buildContext, countWords, examLabel, locate, validateReview, type AnchoredAnnotation, type StoredReview, type StudioOptions } from '@tutordesk/pipeline';
 import { BEAMER_THEME_NAMES } from '@tutordesk/render';
@@ -63,6 +63,19 @@ function checksText(checks: { severity: string; message: string; nodeId?: string
   return checks.map((c) => `- [${c.severity}] ${c.message}${c.nodeId ? ` (node ${c.nodeId})` : ''}`).join('\n');
 }
 
+const Note = z.string().max(1000).optional().describe('One or two sentences for the tutor: why, or what you assumed');
+const PROPOSED = 'Proposed. Nothing changes until the tutor confirms the card in TutorDesk. Tell the tutor in one or two lines what you proposed and anything you assumed, then stop';
+
+/** A profile the proposal would produce, checked as a whole: the problems as one line, or null. */
+function draftCheck(build: () => unknown): string | null {
+  try {
+    build();
+    return null;
+  } catch (e) {
+    return e instanceof z.ZodError ? formatIssues(e).replace(/\n/g, '; ') : (e as Error).message;
+  }
+}
+
 const StudentId = z.string().describe('Student folder id, e.g. "li-wei-ielts" (see list_students)');
 const LessonIdArg = z.string().describe('Lesson id, e.g. "2026-10-28-L04" (see list_lessons)');
 const KindArg = ArtifactKind.describe('handout | worksheet | script | deck');
@@ -74,9 +87,11 @@ const KindArg = ArtifactKind.describe('handout | worksheet | script | deck');
  */
 export class Toolbox {
   readonly studio: ArtifactStudio;
+  readonly proposals: ProposalStore;
 
   constructor(private readonly o: ToolboxOptions) {
     this.studio = new ArtifactStudio(o);
+    this.proposals = new ProposalStore(o.ws.root);
   }
 
   private get ws(): WorkspaceService {
@@ -180,7 +195,7 @@ export class Toolbox {
       tool({
         name: 'create_lesson',
         title: 'Create lesson',
-        description: 'Create the next lesson for a student. Minutes default to the student’s usual lesson length.',
+        description: 'Create one lesson right away, when the tutor asks for that lesson now. To schedule several lessons use propose_lessons. Minutes default to the student’s usual lesson length.',
         input: {
           studentId: StudentId,
           date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).describe('YYYY-MM-DD'),
@@ -194,6 +209,61 @@ export class Toolbox {
           const l = await this.ws.createLesson(studentId, { date, minutes, topic });
           if (brief) await this.ws.updateLesson(studentId, l.id, (m) => ({ ...m, brief }), `Brief for ${l.id}`);
           return ok(`Created ${l.id} (lesson ${l.number}, ${l.minutes} min).`);
+        },
+      }),
+
+      tool({
+        name: 'propose_student',
+        title: 'Propose new student',
+        description:
+          'When the tutor describes a new student: propose their profile (and, if the tutor gave a schedule, their first lessons). Nothing is created until the tutor confirms the card in TutorDesk. Ask first if the exam, target score or lesson schedule is unclear; leave other unknown fields out rather than guessing.',
+        input: { student: ProposedStudent, lessons: z.array(ProposedLesson).max(30).optional(), note: Note },
+        readOnly: false,
+        run: async ({ student, lessons, note }) => {
+          const parsed = ProposedStudent.safeParse(student);
+          if (!parsed.success) return fail(`Not proposed:\n${formatIssues(parsed.error)}`);
+          const check = draftCheck(() => draftProfile(parsed.data));
+          if (check) return fail(`Not proposed: ${check}`);
+          const p = await this.proposals.create({ kind: 'student', student: parsed.data, lessons: lessons ?? [], note, by: this.o.by });
+          const twins = (await this.ws.listStudents()).filter((s) => s.ok && s.profile.name.trim().toLowerCase() === parsed.data.name.trim().toLowerCase());
+          return ok(
+            `${PROPOSED} (proposal ${p.id}: new student ${parsed.data.name}${lessons?.length ? ` with ${lessons.length} lessons` : ''}).${twins.length ? `\nNote: a student named ${parsed.data.name} already exists (${twins.map((s) => (s.ok ? s.profile.id : s.id)).join(', ')}); mention it to the tutor.` : ''}`,
+          );
+        },
+      }),
+
+      tool({
+        name: 'propose_profile_update',
+        title: 'Propose profile changes',
+        description:
+          "Propose changes to a student's profile from what the tutor said or from evidence (scores, essays, notes). Send only the fields that change. The tutor sees each change on a card and confirms it in TutorDesk.",
+        input: { studentId: StudentId, changes: ProfileChanges, note: Note },
+        readOnly: false,
+        run: async ({ studentId, changes, note }) => {
+          const cur = await this.assertStudent(studentId);
+          const parsed = ProfileChanges.safeParse(changes);
+          if (!parsed.success) return fail(`Not proposed:\n${formatIssues(parsed.error)}`);
+          if (!Object.keys(parsed.data).length) return fail('Not proposed: no changes given.');
+          const check = draftCheck(() => StudentProfile.parse(mergeProfile(cur, parsed.data)));
+          if (check) return fail(`Not proposed: ${check}`);
+          const p = await this.proposals.create({ kind: 'profile', studentId, changes: parsed.data, note, by: this.o.by });
+          return ok(`${PROPOSED} (proposal ${p.id}: ${Object.keys(parsed.data).join(', ')}).`);
+        },
+      }),
+
+      tool({
+        name: 'propose_lessons',
+        title: 'Propose lessons',
+        description:
+          "Schedule one or more lessons for a student, e.g. from the tutor's weekly timetable up to the exam. Dates are YYYY-MM-DD; work them out from today's date and the student's schedule. The tutor confirms (and can untick lessons) in TutorDesk.",
+        input: { studentId: StudentId, lessons: z.array(ProposedLesson).min(1).max(30), note: Note },
+        readOnly: false,
+        run: async ({ studentId, lessons, note }) => {
+          await this.assertStudent(studentId);
+          const taken = new Set((await this.ws.listLessons(studentId)).map((l) => l.date));
+          const clash = lessons.filter((l) => taken.has(l.date)).map((l) => l.date);
+          const p = await this.proposals.create({ kind: 'lessons', studentId, lessons, note, by: this.o.by });
+          return ok(`${PROPOSED} (proposal ${p.id}: ${lessons.length} lessons, ${lessons[0]!.date}${lessons.length > 1 ? ` to ${lessons.at(-1)!.date}` : ''}).${clash.length ? `\nNote: there are already lessons on ${clash.join(', ')}; mention it to the tutor.` : ''}`);
         },
       }),
 

@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { WorkspaceService } from '@tutordesk/core';
+import { ProposalStore, WorkspaceService, applyProposal } from '@tutordesk/core';
 import { ArtifactStudio } from '@tutordesk/pipeline';
 import { handout } from '../../render/test/fixtures/docs.js';
 import { essay, plan90, writingReview } from '../../pipeline/test/fakes.js';
@@ -121,6 +121,58 @@ describe('Toolbox', () => {
     expect(s.text).toContain('LAST frame must be a wrapup');
     expect(s.text).toContain('JSON Schema:');
     expect((await box.call('get_guidelines', { topic: 'pte' })).text).toContain('Summarize Written Text');
+  });
+});
+
+describe('proposals', () => {
+  it('proposes a new student without creating anything, then creates it with the tutor’s edits', async () => {
+    const student = { name: 'Wang Yiran', exam: 'ielts-academic', targetOverall: 6.5, examDate: '2027-01-15', delivery: { sessionsPerWeek: 2, minutesPerSession: 90, mode: 'online' }, interests: ['basketball'], targetBySkill: { writing: 6.5 } };
+    const r = await box.call('propose_student', { student, lessons: [{ date: '2026-11-05', topic: 'Diagnostic' }, { date: '2026-11-03' }], note: 'Gloss assumed Chinese.' });
+    expect(r.isError).toBeUndefined();
+    expect(r.text).toMatch(/Nothing changes until the tutor confirms/);
+    expect((await ws.listStudents()).length).toBe(1);
+
+    const store = new ProposalStore(ws.root);
+    const [p] = await store.list({ status: 'pending' });
+    expect(p).toMatchObject({ kind: 'student', by: 'test-agent', note: 'Gloss assumed Chinese.' });
+    if (p?.kind !== 'student') throw new Error('expected a student proposal');
+    // The tutor raises the target and unticks the diagnostic lesson.
+    const done = await applyProposal(ws, store, p.id, { student: { ...p.student, targetOverall: 7 }, lessons: [{ date: '2026-11-03' }] });
+    const created = await ws.readProfile(done.studentId);
+    expect(created.ok && created.value).toMatchObject({ name: 'Wang Yiran', interests: ['basketball'], goal: { targetOverall: 7, examDates: ['2027-01-15'], targetBySkill: { writing: 6.5 } }, delivery: { minutesPerSession: 90 } });
+    expect(done.lessons.map((l) => l.date)).toEqual(['2026-11-03']);
+    expect((await store.get(p.id))?.status).toBe('applied');
+    await expect(applyProposal(ws, store, p.id)).rejects.toThrow(/already applied/);
+  });
+
+  it('checks the whole profile before proposing, and keeps only the latest proposal', async () => {
+    const bad = await box.call('propose_profile_update', { studentId, changes: { goal: { targetOverall: 6.3 } } });
+    expect(bad).toMatchObject({ isError: true, text: expect.stringMatching(/targetOverall/) });
+    expect((await box.call('propose_profile_update', { studentId, changes: {} })).isError).toBe(true);
+
+    await box.call('propose_profile_update', { studentId, changes: { goal: { targetOverall: 7 } } });
+    await box.call('propose_profile_update', { studentId, changes: { goal: { targetOverall: 7.5 }, interests: ['films'] } });
+    const store = new ProposalStore(ws.root);
+    const pending = await store.list({ studentId, status: 'pending' });
+    expect(pending).toHaveLength(1);
+    const before = await ws.readProfile(studentId);
+    expect(before.ok && before.value.goal.targetOverall).toBe(6.5);
+
+    await applyProposal(ws, store, pending[0]!.id);
+    const after = await ws.readProfile(studentId);
+    expect(after.ok && after.value).toMatchObject({ interests: ['films'], goal: { targetOverall: 7.5, examDates: ['2027-01-20'] } });
+    expect((await ws.history(studentId, 1))[0]?.message).toBe('Update profile (test-agent)');
+  });
+
+  it('proposes lessons, flags dates that already have one, and creates them in date order', async () => {
+    const r = await box.call('propose_lessons', { studentId, lessons: [{ date: '2026-11-06', topic: 'Speaking' }, { date: '2026-10-28', brief: 'Recap' }] });
+    expect(r.text).toMatch(/already lessons on 2026-10-28/);
+    expect(await ws.listLessons(studentId)).toHaveLength(1);
+    const store = new ProposalStore(ws.root);
+    const [p] = await store.list({ studentId });
+    const done = await applyProposal(ws, store, p!.id);
+    expect(done.lessons.map((l) => [l.date, l.number, l.brief ?? ''])).toEqual([['2026-10-28', 2, 'Recap'], ['2026-11-06', 3, '']]);
+    expect(await box.call('propose_lessons', { studentId, lessons: [] })).toMatchObject({ isError: true });
   });
 });
 

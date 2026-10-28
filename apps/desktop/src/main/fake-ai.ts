@@ -38,7 +38,12 @@ export async function createFakeChatModel(subject: ThreadSubject) {
   const { MockLanguageModelV4 } = await import('ai/test');
   const { simulateReadableStream } = await import('ai');
   const usage = { inputTokens: { total: 900, noCache: 900, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 120, text: 120, reasoning: 0 } };
-  const ids = subject.type === 'lesson' ? { studentId: subject.studentId, lessonId: subject.lessonId } : { studentId: subject.studentId, lessonId: '' };
+  const ids = subject.type === 'lesson' ? { studentId: subject.studentId, lessonId: subject.lessonId } : { studentId: subject.type === 'workspace' ? '' : subject.studentId, lessonId: '' };
+  const day = (n: number) => {
+    const d = new Date();
+    d.setDate(d.getDate() + n);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  };
   type Chunk = Record<string, unknown>;
   const say = (t: string, done: 'stop' | 'tool-calls' = 'stop'): Chunk[] => [
     { type: 'text-start', id: 't' },
@@ -54,11 +59,33 @@ export async function createFakeChatModel(subject: ThreadSubject) {
   const respond = (prompt: { role: string; content: unknown }[]): Chunk[] => {
     const last = prompt.at(-1);
     if (last?.role === 'tool') {
+      if (JSON.stringify(last.content).includes('propose_')) return say('I put it on a card below. Check it, change anything that is off, and confirm.');
       return JSON.stringify(last.content).includes('save_plan')
         ? say('The plan card is saved and its checks passed. Review it on the right and approve it when you are happy.')
         : say('Done. The documents are saved and checked; open each tab on the right to see the PDF.');
     }
-    const text = JSON.stringify(last?.content ?? '').toLowerCase();
+    // What the tutor typed, without the note TutorDesk adds about confirmed cards.
+    const text = JSON.stringify(last?.content ?? '').replace(/\[TutorDesk:[^\]]*\]/g, '').toLowerCase();
+    if (subject.type === 'workspace') {
+      const student = {
+        name: 'Wang Yiran',
+        exam: 'ielts-academic',
+        targetOverall: 6.5,
+        examDate: day(75),
+        ageOrGrade: 'Year 11',
+        delivery: { mode: 'online', sessionsPerWeek: 2, minutesPerSession: 90 },
+        targetBySkill: { writing: 6.5 },
+        interests: ['basketball', 'science fiction'],
+        learningStyle: 'Quiet at first; needs a worked example before trying alone.',
+      };
+      const lessons = [{ date: day(2), topic: 'Diagnostic: Task 2 and Speaking' }, { date: day(5), topic: 'Task 2 introductions' }];
+      return [...say('Turning that into a profile.', 'tool-calls'), ...calls([['propose_student', { student, lessons, note: 'Gloss language assumed Chinese; no parent contact given.' }]])];
+    }
+    if (subject.type === 'student') {
+      if (/lesson|schedule|课/.test(text))
+        return [...say('Scheduling the next lessons.', 'tool-calls'), ...calls([['propose_lessons', { studentId: ids.studentId, lessons: [{ date: day(4), topic: 'Task 2 body paragraphs' }, { date: day(7), topic: 'Speaking Part 2' }, { date: day(11) }], note: 'Twice a week, keeping her usual length.' }]])];
+      return [...say('Updating the profile.', 'tool-calls'), ...calls([['propose_profile_update', { studentId: ids.studentId, changes: { goal: { targetOverall: 7, examDates: [day(60)] }, interests: ['basketball', 'films'] }, note: 'Target and exam date from what you said today.' }]])];
+    }
     // The recipes arrive in the interface language.
     if (/material|write|prepare|材料|写/.test(text)) return [...say('Writing the four documents from the approved plan.', 'tool-calls'), ...calls(Object.entries(docs).map(([kind, doc]) => ['save_artifact', { ...ids, kind, doc }]))];
     if (/plan|计划|备/.test(text)) return [...say('Reading the student context, then drafting the plan card.', 'tool-calls'), ...calls([['get_student_context', ids], ['save_plan', { ...ids, plan: plan90 }]])];

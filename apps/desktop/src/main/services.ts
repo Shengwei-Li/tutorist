@@ -3,7 +3,7 @@ import { cp, copyFile, mkdir, readdir, readFile, writeFile } from 'node:fs/promi
 import path from 'node:path';
 import { app, dialog, ipcMain, shell, type WebContents } from 'electron';
 import { z } from 'zod';
-import { NewStudentInput, readJson, WorkspaceService } from '@tutordesk/core';
+import { NewStudentInput, ProfileChanges, ProposalStore, ProposedLesson, ProposedStudent, applyProposal, mergeProfile, readJson, WorkspaceService } from '@tutordesk/core';
 import { LessonStatus } from '@tutordesk/core/schemas';
 import { ARTIFACT_SCHEMAS, ArtifactKind, LessonPlan, type ArtifactDoc } from '@tutordesk/core/artifacts';
 import { LessonPipeline, WritingReviewer, type PipelineEvent } from '@tutordesk/pipeline';
@@ -50,20 +50,8 @@ async function writeToolboxConfig(root: string): Promise<void> {
 `, 'utf8');
 }
 
-/** What the profile editor may change; the merged profile is validated again as a whole. */
-const ProfilePatch = z
-  .object({
-    name: z.string().trim().min(1),
-    ageOrGrade: z.string().optional(),
-    firstLanguage: z.string(),
-    glossLanguage: z.enum(['zh', 'en-en', 'none']),
-    delivery: z.object({ mode: z.enum(['online', 'offline', 'mixed']), format: z.enum(['one-to-one', 'small-group']), sessionsPerWeek: z.number().int().min(1).max(14), minutesPerSession: z.number().int().min(15).max(240) }).partial(),
-    goal: z.object({ exam: z.enum(['ielts-academic', 'ielts-general', 'pte-academic', 'pte-core']), examDates: z.array(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)), targetOverall: z.number(), targetBySkill: z.record(z.string(), z.number()), purpose: z.string().optional() }).partial(),
-    interests: z.array(z.string()),
-    learningStyle: z.string().optional(),
-    parent: z.object({ name: z.string().optional(), contact: z.string().optional(), cadence: z.string().optional(), tone: z.enum(['formal', 'warm']) }).optional(),
-  })
-  .partial();
+/** The tutor's edits to a proposal before confirming it. */
+const ProposalEdit = z.object({ student: ProposedStudent, changes: ProfileChanges, lessons: z.array(ProposedLesson).max(30) }).partial();
 
 const LessonPatch = z
   .object({
@@ -258,13 +246,21 @@ export function registerIpc(): void {
     await shell.openPath(await (await ws()).studentDir(id));
   });
   h('students:update', async (_e, id: string, patch: unknown) => {
-    const p = ProfilePatch.parse(patch);
-    return (await ws()).updateProfile(id, (cur) => ({
-      ...cur,
-      ...p,
-      delivery: { ...cur.delivery, ...p.delivery },
-      goal: { ...cur.goal, ...p.goal },
-    }), 'Update profile');
+    const p = ProfileChanges.parse(patch);
+    return (await ws()).updateProfile(id, (cur) => mergeProfile(cur, p), 'Update profile');
+  });
+
+  // proposals: agents propose, the tutor confirms here
+  const proposals = async () => new ProposalStore((await ws()).root);
+  h('proposals:list', async (_e, filter: { studentId?: string; kind?: 'student' | 'profile' | 'lessons' }) => (await proposals()).list({ ...filter, status: 'pending' }));
+  h('proposals:apply', async (_e, id: string, edit: unknown, threadId?: string) => {
+    const r = await applyProposal(await ws(), await proposals(), id, ProposalEdit.parse(edit ?? {}));
+    if (threadId) await threads.note(threadId, `The tutor confirmed proposal ${id}${r.lessons.length ? ` (${r.lessons.length} lessons created)` : ''}.`);
+    return r;
+  });
+  h('proposals:dismiss', async (_e, id: string, threadId?: string) => {
+    await (await proposals()).setStatus(id, 'dismissed');
+    if (threadId) await threads.note(threadId, `The tutor dismissed proposal ${id}.`);
   });
   h('students:setArchived', async (_e, id: string, archived: boolean) =>
     (await ws()).updateProfile(id, (cur) => ({ ...cur, archived: z.boolean().parse(archived) }), archived ? 'Archive student' : 'Restore student'),

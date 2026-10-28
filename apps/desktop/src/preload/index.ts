@@ -58,6 +58,11 @@ const api: DesktopApi = {
       return () => ipcRenderer.removeListener('run:event', listener);
     },
   },
+  proposals: {
+    list: (filter) => invoke('proposals:list', filter),
+    apply: (id, edit, threadId) => invoke('proposals:apply', id, edit, threadId),
+    dismiss: (id, threadId) => invoke('proposals:dismiss', id, threadId),
+  },
   threads: {
     open: (subject) => invoke('threads:open', subject),
     send: (id, text) => invoke('threads:send', id, text),

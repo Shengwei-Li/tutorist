@@ -3,7 +3,7 @@
  * holds API keys or spawns processes; everything goes through these calls (contextIsolation + sandbox).
  */
 import type { ArtifactDoc, ArtifactKind, LessonPlan, QaCheck, RubricReview, WritingReview } from '@tutordesk/core/artifacts';
-import type { ErrorInstance, LessonMeta, NewStudentInput, StudentProfile, SubmissionMeta } from '@tutordesk/core/schemas';
+import type { ErrorInstance, LessonMeta, NewStudentInput, Proposal, ProposalEdit, StudentProfile, SubmissionMeta } from '@tutordesk/core/schemas';
 import type { AgentEvent, HealthStatus, ModelTier } from '@tutordesk/providers/types';
 
 export type Lang = 'en' | 'zh';
@@ -128,6 +128,7 @@ export interface SubmissionDetail {
 /* ───────────────── threads (appendix E.3.3) ───────────────── */
 
 export type ThreadSubject =
+  | { type: 'workspace' }
   | { type: 'student'; studentId: string }
   | { type: 'lesson'; studentId: string; lessonId: string }
   | { type: 'submission'; studentId: string; submissionId: string };
@@ -185,6 +186,11 @@ export interface WorkspaceChoice {
   currentStudents: number;
   /** Inside the current workspace: not allowed. */
   inside: boolean;
+}
+
+export interface AppliedProposal {
+  studentId: string;
+  lessons: LessonMeta[];
 }
 
 export type ProfilePatch = Partial<Pick<StudentProfile, 'name' | 'ageOrGrade' | 'firstLanguage' | 'glossLanguage' | 'interests' | 'learningStyle' | 'parent'>> & {
@@ -259,6 +265,13 @@ export interface DesktopApi {
   };
   agents: {
     status(): Promise<AgentStatus[]>;
+  };
+  proposals: {
+    /** Pending proposals only, oldest first. */
+    list(filter: { studentId?: string; kind?: Proposal['kind'] }): Promise<Proposal[]>;
+    /** Apply with the tutor's edits; threadId lets the agent hear about it on the next message. */
+    apply(id: string, edit: ProposalEdit, threadId?: string): Promise<AppliedProposal>;
+    dismiss(id: string, threadId?: string): Promise<void>;
   };
   health: {
     ai(): Promise<HealthStatus & { backend: AppSettings['aiBackend'] }>;

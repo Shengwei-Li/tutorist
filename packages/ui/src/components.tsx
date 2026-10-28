@@ -27,7 +27,7 @@ const STATUS_GLYPH: Record<Status, string> = { pending: '○', progress: '◐', 
 /** Status as glyph + text, never a coloured pill. */
 export function StatusMark({ status, children }: { status: Status; children: ReactNode }) {
   return (
-    <span className={clsx('inline-flex items-center gap-1.5 text-sm', status === 'error' ? 'text-danger' : 'text-text-2')}>
+    <span className={clsx('inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap text-sm', status === 'error' ? 'text-danger' : 'text-text-2')}>
       <span aria-hidden className={clsx(status === 'done' && 'text-text', status === 'progress' && 'text-accent')}>
         {STATUS_GLYPH[status]}
       </span>
@@ -62,7 +62,7 @@ export function Field({ label, hint, children }: { label: string; hint?: string;
 }
 
 const inputCls =
-  'h-8 rounded-sm border border-border-strong bg-surface px-2 text-sm text-text placeholder:text-text-3 focus:border-accent focus:outline-none';
+  'h-8 rounded-sm border border-border-strong bg-surface px-2 text-sm text-text placeholder:text-text-3 focus:border-text-3 focus:outline-none';
 
 export function TextInput({ className, ...rest }: InputHTMLAttributes<HTMLInputElement>) {
   return <input className={clsx(inputCls, className)} {...rest} />;

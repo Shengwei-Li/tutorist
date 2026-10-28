@@ -122,7 +122,27 @@ function Elapsed({ since }: { since: number }) {
 }
 
 /** The conversation column: log, approvals, quick instructions, composer. */
-export function ThreadPanel({ thread, agent, recipes, onAttach, empty }: { thread: ThreadState; agent: AgentId; recipes: Recipe[]; onAttach?: () => Promise<string[]>; empty?: ReactNode }) {
+export function ThreadPanel({
+  thread,
+  agent,
+  recipes,
+  onAttach,
+  empty,
+  extra,
+  placeholder,
+  narrow,
+}: {
+  thread: ThreadState;
+  agent: AgentId;
+  recipes: Recipe[];
+  onAttach?: () => Promise<string[]>;
+  empty?: ReactNode;
+  /** Cards that belong to this conversation (e.g. AI proposals), shown after the log. */
+  extra?: ReactNode;
+  placeholder?: string;
+  /** In a side panel: less padding. */
+  narrow?: boolean;
+}) {
   const t = useT();
   const [draft, setDraft] = useState('');
   const logRef = useRef<HTMLDivElement>(null);
@@ -133,7 +153,7 @@ export function ThreadPanel({ thread, agent, recipes, onAttach, empty }: { threa
   useEffect(() => {
     const el = logRef.current;
     if (el && el.scrollHeight - el.scrollTop - el.clientHeight < 160) el.scrollTop = el.scrollHeight;
-  }, [blocks, pending]);
+  }, [blocks, pending, extra]);
 
   useEffect(() => {
     const el = inputRef.current;
@@ -142,8 +162,10 @@ export function ThreadPanel({ thread, agent, recipes, onAttach, empty }: { threa
     el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
   }, [draft]);
 
+  // Until the conversation has loaded there is nowhere to send to: keep the draft.
+  const ready = !!thread.view;
   const submit = () => {
-    if (!draft.trim() || running) return;
+    if (!draft.trim() || running || !ready) return;
     void thread.send(draft);
     setDraft('');
   };
@@ -169,8 +191,8 @@ export function ThreadPanel({ thread, agent, recipes, onAttach, empty }: { threa
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-surface">
       <div ref={logRef} data-testid="thread-log" className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-[680px] px-7 pt-7 pb-3">
-          {!blocks.length && <div className="pt-16 text-center text-[14px] leading-relaxed text-text-3">{empty ?? t('thread.empty')}</div>}
+        <div className={clsx('mx-auto max-w-[680px] pb-3', narrow ? 'px-5 pt-5' : 'px-7 pt-7')}>
+          {!blocks.length && <div className={clsx('text-center text-[14px] leading-relaxed text-text-3', narrow ? 'px-2 pt-10' : 'pt-16')}>{empty ?? t('thread.empty')}</div>}
           {blocks.map((b, i) => {
             const role = b.kind === 'tutor' ? 'tutor' : 'agent';
             const header = role !== lastRole;
@@ -206,6 +228,7 @@ export function ThreadPanel({ thread, agent, recipes, onAttach, empty }: { threa
               </div>
             );
           })}
+          {extra}
           {pending.map((a) => (
             <ApprovalCard key={a.requestId} a={a} onAnswer={(d) => thread.respond(a.requestId, d)} />
           ))}
@@ -227,14 +250,14 @@ export function ThreadPanel({ thread, agent, recipes, onAttach, empty }: { threa
       </div>
 
       <div className="shrink-0 pb-4">
-        <div className="mx-auto max-w-[680px] px-7">
-          <div className="mb-2 flex flex-wrap gap-1.5">
+        <div className={clsx('mx-auto max-w-[680px]', narrow ? 'px-5' : 'px-7')}>
+          <div className={clsx('flex flex-wrap gap-1.5', recipes.length > 0 && 'mb-2')}>
             {recipes.map((r) => (
               <button
                 key={r.id}
                 data-testid={`recipe-${r.id}`}
                 title={r.hint}
-                disabled={running || r.disabled}
+                disabled={running || !ready || r.disabled}
                 onClick={() => applyRecipe(r)}
                 className="h-7 rounded-md border border-border px-2.5 text-[13px] text-text-2 transition-colors hover:border-border-strong hover:text-text disabled:pointer-events-none disabled:opacity-45"
               >
@@ -250,7 +273,7 @@ export function ThreadPanel({ thread, agent, recipes, onAttach, empty }: { threa
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={onKey}
-              placeholder={fill(t('thread.placeholder'), { agent: AGENT_LABEL[agent] })}
+              placeholder={placeholder ?? fill(t('thread.placeholder'), { agent: AGENT_LABEL[agent] })}
               className="block w-full resize-none bg-transparent px-3.5 pt-3 pb-1 text-[14px] leading-relaxed text-text outline-none placeholder:text-text-3"
             />
             <div className="flex items-center gap-1 px-2 pt-1 pb-2">
@@ -281,7 +304,7 @@ export function ThreadPanel({ thread, agent, recipes, onAttach, empty }: { threa
                 <button
                   data-testid="thread-send"
                   aria-label={t('thread.send')}
-                  disabled={!draft.trim()}
+                  disabled={!draft.trim() || !ready}
                   onClick={submit}
                   className="ml-auto grid h-8 w-8 place-items-center rounded-md bg-accent text-accent-fg hover:bg-accent-hover disabled:bg-surface-2 disabled:text-text-3"
                 >

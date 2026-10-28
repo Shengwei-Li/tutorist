@@ -53,6 +53,9 @@ export async function runSmoke(win: BrowserWindow, outDir: string): Promise<void
   await step('today', () => shot('01-today'));
   await step('add student', async () => {
     await click('nav-students');
+    // The first student opens the "describe to AI" view; this run fills the form instead.
+    await until(q('intake-manual'), 5000);
+    await click('intake-manual');
     await until(q('student-name'), 5000);
     await type('student-name', 'Mina Park');
     await click('student-create');
@@ -177,6 +180,49 @@ export async function runSmoke(win: BrowserWindow, outDir: string): Promise<void
     await shot('16-today');
     return ok;
   });
+
+  if (fake) {
+    const h1 = (text: string) => `[...document.querySelectorAll('h1')].some((h) => h.textContent === ${JSON.stringify(text)})`;
+    const ask = async (text: string) => {
+      // The agent controls appear once the conversation has loaded.
+      await until(q('agent-mode'), 10_000);
+      await type('thread-input', text);
+      await click('thread-send');
+    };
+    await step('ai: describe a new student', async () => {
+      await click('nav-students');
+      await until(q('student-add'), 5000);
+      await click('student-add');
+      await until(q('intake-ai'), 5000);
+      await click('intake-ai');
+      await until(q('thread-input'), 5000);
+      await shot('17-intake');
+      await ask('Wang Yiran, Year 11, IELTS 6.5 in about ten weeks, weakest in writing, online twice a week for 90 minutes, loves basketball.');
+      const ok = (await until(q('proposal-student'), 30_000)) && (await until(`!${q('thread-stop')}`, 30_000));
+      await wait(500);
+      await shot('18-intake-card');
+      await click('proposal-confirm');
+      return ok && (await until(h1('Wang Yiran'), 10_000)) && (await until(q('open-lesson-2'), 5000));
+    });
+    await step('ai: schedule lessons', async () => {
+      await click('assistant-open');
+      await until(q('thread-input'), 5000);
+      await ask('Schedule her next lessons.');
+      const ok = (await until(q('proposal-lessons'), 30_000)) && (await until(`!${q('thread-stop')}`, 30_000));
+      await wait(500);
+      await shot('19-assistant-lessons');
+      await click('proposal-confirm');
+      return ok && (await until(q('open-lesson-5'), 10_000));
+    });
+    await step('ai: update the profile', async () => {
+      await ask('Her target is 7 now and she likes films too.');
+      const ok = (await until(q('proposal-profile'), 30_000)) && (await until(`!${q('thread-stop')}`, 30_000));
+      await wait(500);
+      await shot('20-assistant-profile');
+      await click('proposal-confirm');
+      return ok && (await until(`!${q('proposal-profile')} && document.body.innerText.includes('IELTS Academic · 7')`, 10_000));
+    });
+  }
 
   await step('settings', async () => {
     await click('nav-settings');

@@ -7,3 +7,4 @@ export * from './render-md.js';
 export * from './workspace.js';
 export * from './exec.js';
 export * from './artifacts.js';
+export * from './proposals.js';

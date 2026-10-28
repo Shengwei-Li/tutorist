@@ -26,6 +26,7 @@ export function fill(s: string, vars: Record<string, string | number | undefined
 const STEP_KEYS = new Set([
   'list_students', 'get_student_context', 'list_lessons', 'get_lesson', 'create_lesson', 'get_guidelines', 'get_artifact_schema', 'save_plan', 'get_artifact',
   'save_artifact', 'save_review_scores', 'export_pdf', 'list_submissions', 'get_submission', 'save_transcription', 'save_writing_review', 'save_material_text', 'append_note',
+  'propose_student', 'propose_profile_update', 'propose_lessons',
 ]);
 
 const GENERIC: Record<string, TKey> = {

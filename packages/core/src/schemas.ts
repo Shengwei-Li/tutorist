@@ -32,7 +32,7 @@ export function ieltsOverall(scores: readonly [number, number, number, number]):
   return Math.floor(mean * 2 + 0.5 + 1e-9) / 2;
 }
 
-const IsoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'expected YYYY-MM-DD');
+export const IsoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'expected YYYY-MM-DD');
 const IsoDateTime = z.string().datetime({ offset: true });
 export const StudentId = z.string().regex(/^[a-z0-9][a-z0-9-]{1,63}$/, 'lowercase letters, digits and dashes');
 
@@ -175,3 +175,131 @@ export const WorkspaceManifest = z.object({
   templateVersion: z.string(),
 });
 export type WorkspaceManifest = z.infer<typeof WorkspaceManifest>;
+
+/* ───────────────── proposals ───────────────── */
+
+/**
+ * Proposals: what an agent wants to change about students and their schedule. Agents never write a
+ * profile or a batch of lessons directly; they leave a proposal, the tutor confirms (or edits, or
+ * dismisses) it in TutorDesk, and only then does TutorDesk apply it. Same gate as the plan card.
+ */
+const Delivery = z.object({
+  mode: z.enum(['online', 'offline', 'mixed']),
+  format: z.enum(['one-to-one', 'small-group']),
+  sessionsPerWeek: z.number().int().min(1).max(14),
+  minutesPerSession: z.number().int().min(15).max(240),
+});
+
+const Parent = z.object({ name: z.string().optional(), contact: z.string().optional(), cadence: z.string().optional(), tone: z.enum(['formal', 'warm']) });
+
+/** What may change on an existing profile. The merged profile is validated again as a whole. */
+export const ProfileChanges = z
+  .object({
+    name: z.string().trim().min(1),
+    ageOrGrade: z.string().optional(),
+    firstLanguage: z.string().describe('ISO code, e.g. "zh", "yue", "ja"'),
+    glossLanguage: z.enum(['zh', 'en-en', 'none']),
+    delivery: Delivery.partial(),
+    goal: z
+      .object({
+        exam: ExamId,
+        examDates: z.array(IsoDate).describe('Earliest first'),
+        targetOverall: z.number(),
+        targetBySkill: z.record(z.string(), z.number()).describe('Replaces the whole map, e.g. {"writing": 7, "speaking": 6.5}'),
+        purpose: z.string().optional(),
+      })
+      .partial(),
+    levels: z.array(SkillEstimate).describe('Current levels, replaces the whole list'),
+    interests: z.array(z.string()),
+    learningStyle: z.string().optional(),
+    parent: Parent.partial({ tone: true }).optional(),
+  })
+  .partial();
+export type ProfileChanges = z.infer<typeof ProfileChanges>;
+
+export function mergeProfile(cur: StudentProfile, c: ProfileChanges): StudentProfile {
+  return {
+    ...cur,
+    ...c,
+    delivery: { ...cur.delivery, ...c.delivery },
+    goal: { ...cur.goal, ...c.goal },
+    parent: c.parent ? { tone: 'warm', ...c.parent } : 'parent' in c ? undefined : cur.parent,
+  };
+}
+
+export const ProposedLesson = z.object({
+  date: IsoDate,
+  minutes: z.number().int().min(15).max(240).optional().describe("Default: the student's usual length"),
+  topic: z.string().max(80).optional(),
+  brief: z.string().max(2000).optional().describe("The tutor's own words about this lesson"),
+});
+export type ProposedLesson = z.infer<typeof ProposedLesson>;
+
+/** A new student as the tutor described them. Only name, exam and target are required. */
+export const ProposedStudent = z.object({
+  name: z.string().trim().min(1),
+  exam: ExamId,
+  targetOverall: z.number(),
+  examDate: IsoDate.optional(),
+  delivery: Delivery.partial().optional(),
+  ageOrGrade: z.string().optional(),
+  firstLanguage: z.string().optional(),
+  glossLanguage: z.enum(['zh', 'en-en', 'none']).optional(),
+  targetBySkill: z.record(z.string(), z.number()).optional(),
+  purpose: z.string().optional(),
+  levels: z.array(SkillEstimate).optional(),
+  interests: z.array(z.string()).optional(),
+  learningStyle: z.string().optional(),
+  parent: Parent.partial({ tone: true }).optional(),
+});
+export type ProposedStudent = z.infer<typeof ProposedStudent>;
+
+const ProposalBase = {
+  schemaVersion: z.literal(1),
+  id: z.string(),
+  status: z.enum(['pending', 'applied', 'dismissed']),
+  createdAt: z.string(),
+  /** Which agent proposed it, e.g. "claude-code". */
+  by: z.string().optional(),
+  /** Why, in the agent's words: shown on the card. */
+  note: z.string().max(1000).optional(),
+};
+
+export const Proposal = z.discriminatedUnion('kind', [
+  z.object({ ...ProposalBase, kind: z.literal('student'), student: ProposedStudent, lessons: z.array(ProposedLesson).max(30).default([]), appliedStudentId: z.string().optional() }),
+  z.object({ ...ProposalBase, kind: z.literal('profile'), studentId: z.string(), changes: ProfileChanges }),
+  z.object({ ...ProposalBase, kind: z.literal('lessons'), studentId: z.string(), lessons: z.array(ProposedLesson).min(1).max(30) }),
+]);
+export type Proposal = z.infer<typeof Proposal>;
+
+type Fresh<K extends Proposal['kind']> = Omit<Extract<Proposal, { kind: K }>, 'schemaVersion' | 'id' | 'status' | 'createdAt'>;
+export type NewProposal = Fresh<'student'> | Fresh<'profile'> | Fresh<'lessons'>;
+
+/** The full profile a proposed student would get, without writing anything; throws a ZodError if invalid. */
+export function draftProfile(s: ProposedStudent, id = 'new-student'): StudentProfile {
+  const ts = new Date().toISOString();
+  return StudentProfile.parse({
+    schemaVersion: 1,
+    id,
+    name: s.name,
+    ageOrGrade: s.ageOrGrade,
+    firstLanguage: s.firstLanguage ?? 'zh',
+    glossLanguage: s.glossLanguage,
+    delivery: s.delivery ? { mode: 'online', format: 'one-to-one', sessionsPerWeek: 2, minutesPerSession: 90, ...s.delivery } : undefined,
+    goal: { exam: s.exam, examDates: s.examDate ? [s.examDate] : [], targetOverall: s.targetOverall, targetBySkill: s.targetBySkill ?? {}, purpose: s.purpose },
+    levels: s.levels ?? [],
+    interests: s.interests ?? [],
+    learningStyle: s.learningStyle,
+    parent: s.parent ? { tone: 'warm', ...s.parent } : undefined,
+    createdAt: ts,
+    updatedAt: ts,
+  });
+}
+
+/** The tutor's edits to a proposal before confirming it. */
+export interface ProposalEdit {
+  student?: ProposedStudent;
+  changes?: ProfileChanges;
+  /** The lessons to create: the proposal's own, minus any the tutor unticked, or edited ones. */
+  lessons?: ProposedLesson[];
+}
