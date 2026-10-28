@@ -1,8 +1,9 @@
 import { rm } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { app, utilityProcess, type UtilityProcess, type WebContents } from 'electron';
 import type { SpeechStatus } from '../shared/ipc.js';
-import { SAMPLE_RATE, SENSE_VOICE, checkSamples, downloadModel, isInstalled, modelBytes, sourcesFor, tidyTranscript } from './asr-core.js';
+import { SAMPLE_RATE, checkSamples, downloadModel, engineFor, isInstalled, modelBytes, recognizerConfig, sourcesFor, tidyTranscript, type SpeechEngine } from './asr-core.js';
 import { loadSettings } from './settings.js';
 
 /** Unload the model after this long without a recording. */
@@ -22,34 +23,44 @@ export class SpeechService {
   private nextId = 1;
   private idle: NodeJS.Timeout | null = null;
   private queue: Promise<unknown> = Promise.resolve();
-  private download: { abort: AbortController; done: number; finished: Promise<void> } | null = null;
+  private download: { abort: AbortController; done: number; finished: Promise<void>; engine: SpeechEngine } | null = null;
+  /** The model the running process holds. */
+  private loaded: SpeechEngine | null = null;
 
-  private get dir(): string {
-    return path.join(app.getPath('userData'), 'models', SENSE_VOICE.id);
+  private dir(e: SpeechEngine): string {
+    return path.join(app.getPath('userData'), 'models', e.id);
+  }
+
+  /** The model for the tutor's chosen language: English (Parakeet) or Chinese (SenseVoice). */
+  private async engine(): Promise<SpeechEngine> {
+    const s = await loadSettings();
+    return engineFor(s.voiceLanguage, s.language);
   }
 
   async status(): Promise<SpeechStatus> {
-    const total = modelBytes(SENSE_VOICE);
-    if (this.download) return { state: 'downloading', done: this.download.done, total };
-    return { state: (await isInstalled(SENSE_VOICE, this.dir)) ? 'ready' : 'absent', done: 0, total };
+    const e = await this.engine();
+    const total = modelBytes(e);
+    if (this.download?.engine === e) return { state: 'downloading', language: e.language, done: this.download.done, total };
+    return { state: (await isInstalled(e, this.dir(e))) ? 'ready' : 'absent', language: e.language, done: 0, total };
   }
 
   /** Download and verify the model; progress goes to the window that asked. */
   async install(sender: WebContents): Promise<void> {
-    if (this.download) throw new Error('The speech model is already downloading.');
+    if (this.download) throw new Error('A speech model is already downloading.');
+    const e = await this.engine();
     const abort = new AbortController();
     const china = (await loadSettings()).language === 'zh';
     let last = 0;
-    const finished = downloadModel(sourcesFor(SENSE_VOICE, china), this.dir, {
+    const finished = downloadModel(sourcesFor(e, china), this.dir(e), {
       signal: abort.signal,
       onProgress: (done, total) => {
         if (this.download) this.download.done = done;
         if (done - last < total / 200 && done !== total) return;
         last = done;
-        if (!sender.isDestroyed()) sender.send('speech:progress', { state: 'downloading', done, total } satisfies SpeechStatus);
+        if (!sender.isDestroyed()) sender.send('speech:progress', { state: 'downloading', language: e.language, done, total } satisfies SpeechStatus);
       },
     });
-    this.download = { abort, done: 0, finished: finished.catch(() => {}) };
+    this.download = { abort, done: 0, finished: finished.catch(() => {}), engine: e };
     try {
       await finished;
     } finally {
@@ -63,11 +74,12 @@ export class SpeechService {
 
   async uninstall(): Promise<void> {
     // Let a cancelled download close its file before the folder goes.
+    const e = await this.engine();
     const d = this.download;
     d?.abort.abort();
     await d?.finished;
     this.stop();
-    await rm(this.dir, { recursive: true, force: true });
+    await rm(this.dir(e), { recursive: true, force: true });
   }
 
   /** Transcribe one recording (16 kHz mono). One at a time; the text comes back for the tutor to check. */
@@ -79,12 +91,15 @@ export class SpeechService {
   }
 
   private async run(audio: Float32Array): Promise<string> {
-    if (!(await isInstalled(SENSE_VOICE, this.dir))) throw new Error('Download the speech model first (Settings → Voice input).');
+    const e = await this.engine();
+    if (!(await isInstalled(e, this.dir(e)))) throw new Error('Download the speech model first (Settings → Voice input).');
     if (this.idle) clearTimeout(this.idle);
+    // The tutor switched language since the last recording: load the other model.
+    if (this.loaded && this.loaded !== e) this.stop();
     try {
-      await this.start();
+      await this.start(e);
       const id = this.nextId++;
-      // Generous: about a twentieth of real time on a laptop CPU.
+      // Generous: both models run at about a tenth of real time or faster on a laptop CPU.
       const limit = 30_000 + (audio.length / SAMPLE_RATE) * 1000;
       const text = await new Promise<string>((resolve, reject) => {
         const timer = setTimeout(() => {
@@ -101,8 +116,9 @@ export class SpeechService {
     }
   }
 
-  private start(): Promise<void> {
+  private start(e: SpeechEngine): Promise<void> {
     if (this.ready) return this.ready;
+    this.loaded = e;
     // The recognizer needs no secrets: it starts without API keys or tokens in its environment.
     const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/KEY|TOKEN|SECRET|PASSWORD|AUTH/i.test(k)));
     const worker = utilityProcess.fork(path.join(import.meta.dirname, 'asr-worker.js'), [], { serviceName: 'TutorDesk speech', stdio: 'ignore', env });
@@ -132,7 +148,9 @@ export class SpeechService {
       });
     });
     this.ready.catch(() => this.stop());
-    worker.postMessage({ type: 'load', dir: this.dir });
+    // Up to four threads: faster than two (11 s instead of 15 s for two minutes), without taking the machine.
+    const threads = Math.max(1, Math.min(4, Math.floor(os.availableParallelism() / 2)));
+    worker.postMessage({ type: 'load', config: recognizerConfig(e, this.dir(e), threads) });
     return this.ready;
   }
 
@@ -144,6 +162,7 @@ export class SpeechService {
     this.waiting.clear();
     this.worker = null;
     this.ready = null;
+    this.loaded = null;
   }
 
   /** Unload the model: the process and its memory go away. */

@@ -33,7 +33,7 @@ export function useSpeechModel() {
     refresh();
   };
   const cancel = () => void window.tutordesk.speech.cancelInstall();
-  return { status, error, install, uninstall, cancel };
+  return { status, error, install, uninstall, cancel, refresh };
 }
 
 export const mb = (n: number) => `${Math.round(n / 1e6)} MB`;
@@ -166,7 +166,7 @@ export function VoiceSetup({ onReady, onClose }: { onReady: () => void; onClose:
         </>
       }
     >
-      <p className="text-sm text-text-2">{t('voice.setupBody')}</p>
+      <p className="text-sm text-text-2">{fill(t('voice.setupBody'), { model: s ? t(`voice.model.${s.language}`) : '' })}</p>
       {downloading && s && <Progress done={s.done} total={s.total} />}
       {m.error && <p className="mt-2 text-sm text-danger">{m.error}</p>}
     </Dialog>

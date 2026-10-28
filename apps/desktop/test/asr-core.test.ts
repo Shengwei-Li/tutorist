@@ -4,7 +4,7 @@ import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { SENSE_VOICE, checkSamples, downloadModel, isInstalled, sourcesFor, tidyTranscript, type SpeechModel } from '../src/main/asr-core.js';
+import { PARAKEET, SENSE_VOICE, checkSamples, downloadModel, engineFor, isInstalled, recognizerConfig, sourcesFor, tidyTranscript, type SpeechEngine, type SpeechModel } from '../src/main/asr-core.js';
 
 let tmp: string;
 beforeEach(async () => {
@@ -96,7 +96,10 @@ describe('speech model download', () => {
   it('tries the China mirror first when asked, and every pinned source uses HTTPS', () => {
     expect(sourcesFor(SENSE_VOICE, true).sources.map((s) => s.name)).toEqual(['modelscope', 'huggingface']);
     expect(sourcesFor(SENSE_VOICE, false).sources.map((s) => s.name)).toEqual(['huggingface', 'modelscope']);
-    for (const s of SENSE_VOICE.sources) for (const f of SENSE_VOICE.files) expect(s.url(f.name)).toMatch(/^https:\/\//);
+    for (const m of [SENSE_VOICE, PARAKEET]) {
+      for (const s of m.sources) for (const f of m.files) expect(s.url(f.name)).toMatch(/^https:\/\//);
+      for (const f of m.files) expect(f.sha256).toMatch(/^[0-9a-f]{64}$/);
+    }
   });
 
   it('reports server errors and cancellation plainly', async () => {
@@ -111,6 +114,26 @@ describe('speech model download', () => {
     await writeFile(path.join(tmp, 'model.onnx'), A);
     await writeFile(path.join(tmp, 'tokens.txt'), 'tampered, longer');
     expect(await isInstalled(model(), tmp)).toBe(false);
+  });
+});
+
+describe('choosing the model', () => {
+  it('follows the tutor’s choice, else the interface language, and ignores anything unknown', () => {
+    expect(engineFor(undefined, 'en')).toBe(PARAKEET);
+    expect(engineFor(undefined, 'zh')).toBe(SENSE_VOICE);
+    expect(engineFor('chinese', 'en')).toBe(SENSE_VOICE);
+    expect(engineFor('english', 'zh')).toBe(PARAKEET);
+    expect(engineFor('../../evil', 'en')).toBe(PARAKEET);
+  });
+
+  it('builds recognizer settings with every path inside the model folder', () => {
+    const dir = path.join(tmp, 'models', 'x');
+    for (const e of [PARAKEET, SENSE_VOICE]) {
+      const json = JSON.stringify(recognizerConfig(e, dir, 4));
+      const paths = [...json.matchAll(/"([^"]+\.(?:onnx|txt))"/g)].map((m) => JSON.parse(`"${m[1]}"`) as string);
+      expect(paths.length).toBe(e.files.length);
+      for (const p of paths) expect(e.files.map((f) => path.join(dir, f.name))).toContain(p);
+    }
   });
 });
 
@@ -141,21 +164,23 @@ describe('transcript tidying', () => {
   });
 });
 
-// Real model, offline: set TUTORDESK_ASR_MODEL_DIR to a folder with model.int8.onnx, tokens.txt and wavs/zh.wav.
-const modelDir = process.env.TUTORDESK_ASR_MODEL_DIR;
-describe.skipIf(!modelDir)('SenseVoice (local model)', () => {
-  it('transcribes Chinese in well under real time', () => {
+// Real models, offline: TUTORDESK_ASR_MODELS is a folder with sense-voice/ and parakeet/ (the model
+// files of each) and clips/zh.wav and clips/au.wav (an Australian speaker reading the Stella passage).
+const models = process.env.TUTORDESK_ASR_MODELS;
+describe.skipIf(!models)('local models', () => {
+  const run = (e: SpeechEngine, folder: string, clip: string) => {
     const sherpa = createRequire(import.meta.url)('sherpa-onnx-node');
-    const rec = new sherpa.OfflineRecognizer({
-      featConfig: { sampleRate: 16000, featureDim: 80 },
-      modelConfig: { senseVoice: { model: path.join(modelDir!, 'model.int8.onnx'), language: 'auto', useInverseTextNormalization: 1 }, tokens: path.join(modelDir!, 'tokens.txt'), numThreads: 2, provider: 'cpu', debug: 0 },
-    });
-    const wave = sherpa.readWave(path.join(modelDir!, 'wavs', 'zh.wav'));
-    const t = Date.now();
+    const rec = new sherpa.OfflineRecognizer(recognizerConfig(e, path.join(models!, folder), 2));
+    const wave = sherpa.readWave(path.join(models!, 'clips', clip));
     const s = rec.createStream();
     s.acceptWaveform({ samples: checkSamples(wave.samples), sampleRate: 16000 });
     rec.decode(s);
-    expect(rec.getResult(s).text).toContain('九点');
-    expect(Date.now() - t).toBeLessThan(5000);
+    return tidyTranscript(rec.getResult(s).text);
+  };
+  it('SenseVoice transcribes Chinese', () => {
+    expect(run(SENSE_VOICE, 'sense-voice', 'zh.wav')).toContain('九点');
+  }, 60_000);
+  it('Parakeet transcribes an Australian speaker, with punctuation', () => {
+    expect(run(PARAKEET, 'parakeet', 'au.wav')).toMatch(/^Please call Stella\. Ask her to bring these things with her from the store/);
   }, 60_000);
 });

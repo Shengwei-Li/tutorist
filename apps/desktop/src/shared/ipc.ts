@@ -32,7 +32,11 @@ export interface AppSettings {
   api: { gateway: ApiGateway; baseURL?: string; models: Record<ModelTier, string> };
   studio: { name: string; monogram: string };
   tutorName: string;
+  /** Which speech voice input expects; unset follows the interface language. */
+  voiceLanguage?: VoiceLanguage;
 }
+
+export type VoiceLanguage = 'english' | 'chinese';
 
 export type StudentSummary = { ok: true; profile: StudentProfile } | { ok: false; id: string; issues: string[] };
 
@@ -191,6 +195,8 @@ export interface WorkspaceChoice {
 /** The local speech model for voice input. */
 export interface SpeechStatus {
   state: 'absent' | 'downloading' | 'ready';
+  /** English (Parakeet) or Chinese and mixed speech (SenseVoice): one model each. */
+  language: VoiceLanguage;
   /** Bytes downloaded so far, and the model's size. */
   done: number;
   total: number;

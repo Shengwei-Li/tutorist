@@ -1,7 +1,7 @@
 import { cp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { app, nativeTheme, type BrowserWindow } from 'electron';
-import { SENSE_VOICE } from './asr-core.js';
+import { PARAKEET, SENSE_VOICE } from './asr-core.js';
 
 /**
  * Self-driving smoke run (TUTORDESK_SMOKE_DIR=<dir>): exercises the real app through its UI and
@@ -245,29 +245,33 @@ export async function runSmoke(win: BrowserWindow, outDir: string): Promise<void
     await js(`[...document.querySelectorAll('[role=dialog] button')].find((b) => b.dataset.testid !== 'voice-install')?.click()`);
     return ok;
   });
-  // With TUTORDESK_SMOKE_ASR_MODEL (a folder holding the model files and wavs/zh.wav): the real recognizer, end to end.
-  const asrModel = process.env.TUTORDESK_SMOKE_ASR_MODEL;
-  if (asrModel) {
-    await step('voice: transcribe through the app', async () => {
-      const dest = path.join(app.getPath('userData'), 'models', SENSE_VOICE.id);
-      for (const f of SENSE_VOICE.files) await cp(path.join(asrModel, f.name), path.join(dest, f.name));
-      const wav = await readFile(path.join(asrModel, 'wavs', 'zh.wav'));
+  // With TUTORDESK_SMOKE_ASR_MODELS (sense-voice/ and parakeet/ model folders, clips/zh.wav, clips/au.wav):
+  // both real recognizers, end to end through the app.
+  const asrModels = process.env.TUTORDESK_SMOKE_ASR_MODELS;
+  if (asrModels) {
+    const dictate = async (language: 'chinese' | 'english', engine: typeof SENSE_VOICE, folder: string, clip: string, expect: RegExp) => {
+      await js(`window.tutordesk.settings.update({ voiceLanguage: '${language}' })`);
+      const dest = path.join(app.getPath('userData'), 'models', engine.id);
+      for (const f of engine.files) await cp(path.join(asrModels, folder, f.name), path.join(dest, f.name));
+      const wav = await readFile(path.join(asrModels, 'clips', clip));
       // 16-bit PCM mono after a 44-byte header.
       const pcm = new Int16Array(wav.buffer.slice(wav.byteOffset + 44, wav.byteOffset + wav.length - ((wav.length - 44) % 2)));
       const samples = Array.from(pcm, (v) => Math.round((v / 32768) * 1e5) / 1e5);
       const t = Date.now();
       const text = await js<string>(`window.tutordesk.speech.transcribe(new Float32Array(${JSON.stringify(samples)}))`);
-      const status = await js<{ state: string }>('window.tutordesk.speech.status()');
-      report.push({ step: 'voice: transcript', ok: text.includes('九点'), note: `${text} (${Date.now() - t} ms, model ${status.state})` });
+      const status = await js<{ state: string; language: string }>('window.tutordesk.speech.status()');
+      report.push({ step: `voice: ${language} transcript`, ok: expect.test(text) && status.language === language, note: `${text.slice(0, 90)} (${Date.now() - t} ms)` });
       return text.length > 0;
-    });
+    };
+    await step('voice: Chinese through the app', () => dictate('chinese', SENSE_VOICE, 'sense-voice', 'zh.wav', /九点/));
+    await step('voice: English through the app', () => dictate('english', PARAKEET, 'parakeet', 'au.wav', /^Please call Stella\. Ask her/));
   }
 
   await step('settings', async () => {
     await click('nav-settings');
     const ok = await until(q('claude-checked'), 30_000);
     await shot('10-settings');
-    await js(`document.querySelector('main, [class*=overflow-auto]')?.scrollTo(0, 99999)`);
+    await js(`document.querySelector('[data-testid=voice-language]')?.scrollIntoView({ block: 'center' })`);
     await wait(300);
     await shot('10b-settings-voice');
     return ok;

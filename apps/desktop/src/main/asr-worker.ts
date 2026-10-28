@@ -1,5 +1,4 @@
 import { createRequire } from 'node:module';
-import path from 'node:path';
 
 /**
  * Speech recognizer process (Electron utility process). Holds the SenseVoice model in its own memory
@@ -13,7 +12,8 @@ interface Recognizer {
   getResult(stream: unknown): { text: string };
 }
 
-type Request = { type: 'load'; dir: string } | { type: 'transcribe'; id: number; samples: Float32Array };
+/** `config` is built by the main process (asr-core.ts recognizerConfig): model paths and threads. */
+type Request = { type: 'load'; config: Record<string, unknown> } | { type: 'transcribe'; id: number; samples: Float32Array };
 
 // Not named `require`: electron-vite adds a shim of that name to ESM main bundles.
 const nodeRequire = createRequire(import.meta.url);
@@ -24,16 +24,7 @@ process.parentPort.on('message', (e: { data: Request }) => {
   try {
     if (m.type === 'load') {
       const sherpa = nodeRequire('sherpa-onnx-node') as { OfflineRecognizer: new (config: unknown) => Recognizer };
-      recognizer = new sherpa.OfflineRecognizer({
-        featConfig: { sampleRate: 16000, featureDim: 80 },
-        modelConfig: {
-          senseVoice: { model: path.join(m.dir, 'model.int8.onnx'), language: 'auto', useInverseTextNormalization: 1 },
-          tokens: path.join(m.dir, 'tokens.txt'),
-          numThreads: 2,
-          provider: 'cpu',
-          debug: 0,
-        },
-      });
+      recognizer = new sherpa.OfflineRecognizer(m.config);
       process.parentPort.postMessage({ type: 'loaded' });
       return;
     }

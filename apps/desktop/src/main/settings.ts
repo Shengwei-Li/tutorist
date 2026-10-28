@@ -42,6 +42,7 @@ export async function loadSettings(): Promise<AppSettings> {
   if (!AGENTS.includes(stored.agent as AppSettings['agent'])) merged.agent = merged.aiBackend === 'claude-cli' ? 'claude-code' : 'api';
   if (AGENTS.includes(process.env.TUTORDESK_AGENT as AppSettings['agent'])) merged.agent = process.env.TUTORDESK_AGENT as AppSettings['agent'];
   if (!API_GATEWAYS.includes(merged.api.gateway)) merged.api.gateway = 'openrouter';
+  if (merged.voiceLanguage !== undefined && merged.voiceLanguage !== 'english' && merged.voiceLanguage !== 'chinese') delete merged.voiceLanguage;
   cache = merged;
   return merged;
 }

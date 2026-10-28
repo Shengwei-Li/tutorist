@@ -1,7 +1,7 @@
 import { Button, Dialog, Field, KeyValue, Panel, Select, StatusMark, TextInput } from '@tutordesk/ui';
 import { useEffect, useState } from 'react';
 import type { ModelTier } from '@tutordesk/providers/types';
-import { AGENTS, API_GATEWAYS, BEAMER_THEMES, type AgentMode, type AppSettings, type ApiGateway, type BeamerTheme, type CompileOutcome, type CompileSampleRequest, type WorkspaceChoice } from '../../../shared/ipc';
+import { AGENTS, API_GATEWAYS, BEAMER_THEMES, type AgentMode, type AppSettings, type ApiGateway, type BeamerTheme, type CompileOutcome, type CompileSampleRequest, type VoiceLanguage, type WorkspaceChoice } from '../../../shared/ipc';
 import { useT, type TKey } from '../i18n';
 import { useAgentStatus } from '../thread/AgentControls';
 import { Progress, mb, useSpeechModel } from '../thread/Voice';
@@ -244,7 +244,7 @@ function Typesetting({ tex, theme, onTheme, onRecheck }: { tex: ReturnType<typeo
   );
 }
 
-function Voice() {
+function Voice({ update }: { update: (p: Partial<AppSettings>) => Promise<void> }) {
   const t = useT();
   const m = useSpeechModel();
   const s = m.status;
@@ -268,6 +268,22 @@ function Voice() {
         )
       }
     >
+      <div className="mb-3 w-96">
+        <Field label={t('voice.language')}>
+          <Select
+            data-testid="voice-language"
+            value={s.language}
+            disabled={s.state === 'downloading'}
+            onChange={async (e) => {
+              await update({ voiceLanguage: e.target.value as VoiceLanguage });
+              m.refresh();
+            }}
+          >
+            <option value="english">{t('voice.lang.english')}</option>
+            <option value="chinese">{t('voice.lang.chinese')}</option>
+          </Select>
+        </Field>
+      </div>
       <p className="text-sm text-text-2">{fill(t(s.state === 'ready' ? 'voice.ready' : 'voice.absent'), { size: mb(s.total) })}</p>
       <p className="mt-1 text-sm text-text-3">{t('voice.memory')}</p>
       {s.state === 'downloading' && <Progress done={s.done} total={s.total} />}
@@ -407,7 +423,7 @@ export function SettingsPage({ settings, onSettings }: { settings: AppSettings; 
       <AiConnection settings={settings} update={update} ai={ai} recheck={() => refresh(true)} />
       {ai !== null && <span data-testid="claude-checked" hidden />}
       <Studio settings={settings} update={update} />
-      <Voice />
+      <Voice update={update} />
       <Typesetting tex={tex} theme={settings.beamerTheme} onTheme={(th) => void update({ beamerTheme: th })} onRecheck={() => refresh(true)} />
       {wsChoice && <WorkspaceDialog choice={wsChoice} onDone={onSettings} onClose={() => setWsChoice(null)} />}
     </div>
