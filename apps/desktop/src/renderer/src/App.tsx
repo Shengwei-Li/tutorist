@@ -8,6 +8,7 @@ import { SettingsPage } from './pages/Settings';
 import { StudentsPage } from './pages/Students';
 import { SubmissionPage } from './pages/Submission';
 import { TodayPage } from './pages/Today';
+import { Pet } from './Pet';
 
 export type Route = 'today' | 'students' | 'settings';
 
@@ -70,6 +71,7 @@ function Shell({ settings, onSettings }: { settings: AppSettings; onSettings: (s
           ))}
         </nav>
         <div className="mt-auto">
+          {settings.pet !== false && <Pet />}
           <NavItem
             id="settings"
             active={route === 'settings'}

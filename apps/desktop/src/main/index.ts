@@ -1,7 +1,8 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { app, BrowserWindow, nativeTheme, session, shell } from 'electron';
-import { closeThreads, registerIpc } from './services.js';
+import { applyZoom, closeThreads, registerIpc } from './services.js';
+import { loadSettings } from './settings.js';
 import { runSmoke } from './smoke.js';
 
 const smokeDir = process.env.TUTORDESK_SMOKE_DIR ? path.resolve(process.env.TUTORDESK_SMOKE_DIR) : undefined;
@@ -29,6 +30,8 @@ function createWindow(): BrowserWindow {
     },
   });
   win.once('ready-to-show', () => win.show());
+  // The tutor's interface size, on every load (a reload resets Chromium's zoom).
+  win.webContents.on('did-finish-load', () => void loadSettings().then((s) => applyZoom(s.uiScale)));
   // External links open in the system browser, never inside the app.
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:/.test(url)) void shell.openExternal(url);

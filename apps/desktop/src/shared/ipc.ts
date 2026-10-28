@@ -34,7 +34,13 @@ export interface AppSettings {
   tutorName: string;
   /** Which speech voice input expects; unset follows the interface language. */
   voiceLanguage?: VoiceLanguage;
+  /** Interface zoom, one of UI_SCALES; unset is 1. */
+  uiScale?: number;
+  /** The pixel sprite in the sidebar; unset is shown. */
+  pet?: boolean;
 }
+
+export const UI_SCALES = [0.9, 1, 1.1, 1.25] as const;
 
 export type VoiceLanguage = 'english' | 'chinese';
 

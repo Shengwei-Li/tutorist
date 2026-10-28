@@ -3,7 +3,7 @@ import path from 'node:path';
 import { app, safeStorage } from 'electron';
 import { writeFileAtomic, writeJson } from '@tutordesk/core';
 import { DEFAULT_MODELS } from '@tutordesk/providers';
-import { AGENTS, API_GATEWAYS, BEAMER_THEMES, type AppSettings } from '../shared/ipc.js';
+import { AGENTS, API_GATEWAYS, BEAMER_THEMES, UI_SCALES, type AppSettings } from '../shared/ipc.js';
 
 const file = () => path.join(app.getPath('userData'), 'settings.json');
 const keyFile = () => path.join(app.getPath('userData'), 'api-key.bin');
@@ -43,12 +43,15 @@ export async function loadSettings(): Promise<AppSettings> {
   if (AGENTS.includes(process.env.TUTORDESK_AGENT as AppSettings['agent'])) merged.agent = process.env.TUTORDESK_AGENT as AppSettings['agent'];
   if (!API_GATEWAYS.includes(merged.api.gateway)) merged.api.gateway = 'openrouter';
   if (merged.voiceLanguage !== undefined && merged.voiceLanguage !== 'english' && merged.voiceLanguage !== 'chinese') delete merged.voiceLanguage;
+  if (merged.uiScale !== undefined && !UI_SCALES.includes(merged.uiScale as (typeof UI_SCALES)[number])) delete merged.uiScale;
+  if (merged.pet !== undefined && typeof merged.pet !== 'boolean') delete merged.pet;
   cache = merged;
   return merged;
 }
 
 export async function saveSettings(patch: Partial<AppSettings>): Promise<AppSettings> {
   const next = { ...(await loadSettings()), ...patch };
+  if (next.uiScale !== undefined && !UI_SCALES.includes(next.uiScale as (typeof UI_SCALES)[number])) delete next.uiScale;
   cache = next;
   await writeJson(file(), next);
   return next;

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { cp, copyFile, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { app, dialog, ipcMain, shell, type WebContents } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, shell, type WebContents } from 'electron';
 import { z } from 'zod';
 import { NewStudentInput, ProfileChanges, ProposalStore, ProposedLesson, ProposedStudent, applyProposal, mergeProfile, readJson, WorkspaceService } from '@tutordesk/core';
 import { LessonStatus } from '@tutordesk/core/schemas';
@@ -90,6 +90,11 @@ const threads = new ThreadService({
 });
 
 const speech = new SpeechService();
+
+/** Interface size: the whole window zooms, so layouts keep their proportions. */
+export function applyZoom(scale: number | undefined): void {
+  for (const w of BrowserWindow.getAllWindows()) w.webContents.setZoomFactor(scale ?? 1);
+}
 
 export function closeThreads(): Promise<void> {
   speech.stop();
@@ -205,6 +210,7 @@ export function registerIpc(): void {
     tex = undefined;
     const saved = await saveSettings(patch);
     if (workspace && workspace.root === saved.workspaceRoot) await writeToolboxConfig(workspace.root);
+    if ('uiScale' in patch) applyZoom(saved.uiScale);
     return saved;
   });
   h('settings:pickWorkspace', async (): Promise<WorkspaceChoice | null> => {

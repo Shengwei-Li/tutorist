@@ -51,7 +51,9 @@ export async function runSmoke(win: BrowserWindow, outDir: string): Promise<void
   const fake = process.env.TUTORDESK_FAKE_AI === '1';
 
   await wait(1500);
+  const mood = () => js<string | null>(`document.querySelector('[data-testid=pet]')?.dataset.mood ?? null`);
   await step('today', () => shot('01-today'));
+  await step('pet: coffee while idle', async () => (await mood()) === 'coffee');
   await step('add student', async () => {
     await click('nav-students');
     // The first student opens the "describe to AI" view; this run fills the form instead.
@@ -88,6 +90,10 @@ export async function runSmoke(win: BrowserWindow, outDir: string): Promise<void
       await until(q('write-materials'), 5000);
       await click('write-materials');
       await until(q('thread-stop'), 5000);
+      // The sprite switches when the agent's first event arrives, a moment after the stop button.
+      await until(`document.querySelector('[data-testid=pet]')?.dataset.mood === 'teach'`, 10_000);
+      const busy = await mood();
+      report.push({ step: 'pet: at the chalkboard while the agent works', ok: busy === 'teach', note: String(busy) });
       // Four documents, each checked and typeset by save_artifact.
       const ok = await until(`!${q('thread-stop')}`, 240_000);
       await wait(800);
@@ -266,6 +272,15 @@ export async function runSmoke(win: BrowserWindow, outDir: string): Promise<void
     await step('voice: Chinese through the app', () => dictate('chinese', SENSE_VOICE, 'sense-voice', 'zh.wav', /九点/));
     await step('voice: English through the app', () => dictate('english', PARAKEET, 'parakeet', 'au.wav', /^Please call Stella\. Ask her/));
   }
+
+  await step('settings: interface size', async () => {
+    await js(`window.tutordesk.settings.update({ uiScale: 1.25 })`);
+    await wait(400);
+    const zoomed = wc.getZoomFactor();
+    await js(`window.tutordesk.settings.update({ uiScale: 1 })`);
+    await wait(200);
+    return zoomed === 1.25 && wc.getZoomFactor() === 1;
+  });
 
   await step('settings', async () => {
     await click('nav-settings');

@@ -1,7 +1,7 @@
 import { Button, Dialog, Field, KeyValue, Panel, Select, StatusMark, TextInput } from '@tutordesk/ui';
 import { useEffect, useState } from 'react';
 import type { ModelTier } from '@tutordesk/providers/types';
-import { AGENTS, API_GATEWAYS, BEAMER_THEMES, type AgentMode, type AppSettings, type ApiGateway, type BeamerTheme, type CompileOutcome, type CompileSampleRequest, type VoiceLanguage, type WorkspaceChoice } from '../../../shared/ipc';
+import { AGENTS, API_GATEWAYS, BEAMER_THEMES, UI_SCALES, type AgentMode, type AppSettings, type ApiGateway, type BeamerTheme, type CompileOutcome, type CompileSampleRequest, type VoiceLanguage, type WorkspaceChoice } from '../../../shared/ipc';
 import { useT, type TKey } from '../i18n';
 import { useAgentStatus } from '../thread/AgentControls';
 import { Progress, mb, useSpeechModel } from '../thread/Voice';
@@ -409,13 +409,30 @@ export function SettingsPage({ settings, onSettings }: { settings: AppSettings; 
               ],
             ]}
           />
-          <div className="w-48">
-            <Field label={t('settings.language')}>
-              <Select value={settings.language} onChange={(e) => void update({ language: e.target.value as AppSettings['language'] })}>
-                <option value="en">English</option>
-                <option value="zh">简体中文</option>
-              </Select>
-            </Field>
+          <div className="flex items-end gap-4">
+            <div className="w-48">
+              <Field label={t('settings.language')}>
+                <Select value={settings.language} onChange={(e) => void update({ language: e.target.value as AppSettings['language'] })}>
+                  <option value="en">English</option>
+                  <option value="zh">简体中文</option>
+                </Select>
+              </Field>
+            </div>
+            <div className="w-36">
+              <Field label={t('settings.uiScale')}>
+                <Select data-testid="ui-scale" value={String(settings.uiScale ?? 1)} onChange={(e) => void update({ uiScale: Number(e.target.value) })}>
+                  {UI_SCALES.map((s) => (
+                    <option key={s} value={s}>
+                      {Math.round(s * 100)}%
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            </div>
+            <label className="flex h-8 cursor-pointer items-center gap-2 text-sm">
+              <input type="checkbox" data-testid="pet-toggle" checked={settings.pet !== false} onChange={(e) => void update({ pet: e.target.checked })} />
+              {t('settings.pet')}
+            </label>
           </div>
         </div>
       </Panel>
