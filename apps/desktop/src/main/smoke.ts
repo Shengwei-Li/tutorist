@@ -1,6 +1,7 @@
-import { mkdir, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { app, nativeTheme, type BrowserWindow } from 'electron';
+import { SENSE_VOICE } from './asr-core.js';
 
 /**
  * Self-driving smoke run (TUTORDESK_SMOKE_DIR=<dir>): exercises the real app through its UI and
@@ -224,10 +225,51 @@ export async function runSmoke(win: BrowserWindow, outDir: string): Promise<void
     });
   }
 
+  await step('permissions: microphone only', async () => {
+    const name = await js<string>(`navigator.mediaDevices.getUserMedia({ video: true }).then((s) => { s.getTracks().forEach((t) => t.stop()); return 'granted'; }, (e) => e.name)`);
+    if (name === 'granted') throw new Error('camera was granted');
+    const mic = await js<string>(`navigator.permissions.query({ name: 'microphone' }).then((p) => p.state)`);
+    const cam = await js<string>(`navigator.permissions.query({ name: 'camera' }).then((p) => p.state)`);
+    report.push({ step: 'permissions: states', ok: mic === 'granted' && cam === 'denied', note: `microphone ${mic}, camera ${cam}` });
+    return true;
+  });
+  await step('voice: setup dialog', async () => {
+    await click('nav-students');
+    // The assistant panel may still be open from the AI steps.
+    await until(`${q('assistant-open')} || ${q('assistant')}`, 5000);
+    if (!(await js<boolean>(`!!${q('assistant')}`))) await click('assistant-open');
+    await until(q('voice-start'), 5000);
+    await click('voice-start');
+    const ok = await until(q('voice-install'), 5000);
+    await shot('21-voice-setup');
+    await js(`[...document.querySelectorAll('[role=dialog] button')].find((b) => b.dataset.testid !== 'voice-install')?.click()`);
+    return ok;
+  });
+  // With TUTORDESK_SMOKE_ASR_MODEL (a folder holding the model files and wavs/zh.wav): the real recognizer, end to end.
+  const asrModel = process.env.TUTORDESK_SMOKE_ASR_MODEL;
+  if (asrModel) {
+    await step('voice: transcribe through the app', async () => {
+      const dest = path.join(app.getPath('userData'), 'models', SENSE_VOICE.id);
+      for (const f of SENSE_VOICE.files) await cp(path.join(asrModel, f.name), path.join(dest, f.name));
+      const wav = await readFile(path.join(asrModel, 'wavs', 'zh.wav'));
+      // 16-bit PCM mono after a 44-byte header.
+      const pcm = new Int16Array(wav.buffer.slice(wav.byteOffset + 44, wav.byteOffset + wav.length - ((wav.length - 44) % 2)));
+      const samples = Array.from(pcm, (v) => Math.round((v / 32768) * 1e5) / 1e5);
+      const t = Date.now();
+      const text = await js<string>(`window.tutordesk.speech.transcribe(new Float32Array(${JSON.stringify(samples)}))`);
+      const status = await js<{ state: string }>('window.tutordesk.speech.status()');
+      report.push({ step: 'voice: transcript', ok: text.includes('九点'), note: `${text} (${Date.now() - t} ms, model ${status.state})` });
+      return text.length > 0;
+    });
+  }
+
   await step('settings', async () => {
     await click('nav-settings');
     const ok = await until(q('claude-checked'), 30_000);
     await shot('10-settings');
+    await js(`document.querySelector('main, [class*=overflow-auto]')?.scrollTo(0, 99999)`);
+    await wait(300);
+    await shot('10b-settings-voice');
     return ok;
   });
   await step('dark mode', async () => {

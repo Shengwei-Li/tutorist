@@ -8,7 +8,11 @@ const bundled = ['@tutordesk/core', '@tutordesk/providers', '@tutordesk/tex', '@
 
 export default defineConfig({
   main: {
-    build: { externalizeDeps: { exclude: bundled } },
+    build: {
+      externalizeDeps: { exclude: bundled },
+      // The speech recognizer runs in its own utility process (src/main/asr.ts).
+      rollupOptions: { input: { index: resolve(import.meta.dirname, 'src/main/index.ts'), 'asr-worker': resolve(import.meta.dirname, 'src/main/asr-worker.ts') } },
+    },
   },
   preload: {
     build: {

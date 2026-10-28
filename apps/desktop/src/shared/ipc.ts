@@ -188,6 +188,14 @@ export interface WorkspaceChoice {
   inside: boolean;
 }
 
+/** The local speech model for voice input. */
+export interface SpeechStatus {
+  state: 'absent' | 'downloading' | 'ready';
+  /** Bytes downloaded so far, and the model's size. */
+  done: number;
+  total: number;
+}
+
 export interface AppliedProposal {
   studentId: string;
   lessons: LessonMeta[];
@@ -265,6 +273,16 @@ export interface DesktopApi {
   };
   agents: {
     status(): Promise<AgentStatus[]>;
+  };
+  speech: {
+    status(): Promise<SpeechStatus>;
+    /** Download and verify the model (about 240 MB, once). Resolves when it is ready. */
+    install(): Promise<void>;
+    cancelInstall(): Promise<void>;
+    uninstall(): Promise<void>;
+    /** 16 kHz mono samples, at most two minutes; returns the text for the tutor to check. */
+    transcribe(samples: Float32Array): Promise<string>;
+    onProgress(cb: (s: SpeechStatus) => void): () => void;
   };
   proposals: {
     /** Pending proposals only, oldest first. */

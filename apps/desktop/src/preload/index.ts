@@ -58,6 +58,18 @@ const api: DesktopApi = {
       return () => ipcRenderer.removeListener('run:event', listener);
     },
   },
+  speech: {
+    status: () => invoke('speech:status'),
+    install: () => invoke('speech:install'),
+    cancelInstall: () => invoke('speech:cancelInstall'),
+    uninstall: () => invoke('speech:uninstall'),
+    transcribe: (samples) => invoke('speech:transcribe', samples),
+    onProgress: (cb) => {
+      const listener = (_e: unknown, s: Parameters<typeof cb>[0]) => cb(s);
+      ipcRenderer.on('speech:progress', listener);
+      return () => ipcRenderer.removeListener('speech:progress', listener);
+    },
+  },
   proposals: {
     list: (filter) => invoke('proposals:list', filter),
     apply: (id, edit, threadId) => invoke('proposals:apply', id, edit, threadId),

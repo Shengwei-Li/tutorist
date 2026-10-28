@@ -4,6 +4,7 @@ import type { ModelTier } from '@tutordesk/providers/types';
 import { AGENTS, API_GATEWAYS, BEAMER_THEMES, type AgentMode, type AppSettings, type ApiGateway, type BeamerTheme, type CompileOutcome, type CompileSampleRequest, type WorkspaceChoice } from '../../../shared/ipc';
 import { useT, type TKey } from '../i18n';
 import { useAgentStatus } from '../thread/AgentControls';
+import { Progress, mb, useSpeechModel } from '../thread/Voice';
 import { AGENT_LABEL, fill } from '../thread/labels';
 import { PdfFrame } from '../PdfFrame';
 import { useHealth, type AiHealth } from '../useHealth';
@@ -243,6 +244,38 @@ function Typesetting({ tex, theme, onTheme, onRecheck }: { tex: ReturnType<typeo
   );
 }
 
+function Voice() {
+  const t = useT();
+  const m = useSpeechModel();
+  const s = m.status;
+  if (!s) return null;
+  return (
+    <Panel
+      title={t('voice.title')}
+      actions={
+        s.state === 'ready' ? (
+          <Button variant="ghost" className="h-7 text-danger" onClick={() => void m.uninstall()}>
+            {t('voice.remove')}
+          </Button>
+        ) : s.state === 'downloading' ? (
+          <Button variant="ghost" className="h-7" onClick={m.cancel}>
+            {t('common.cancel')}
+          </Button>
+        ) : (
+          <Button data-testid="voice-settings-install" className="h-7" onClick={() => void m.install()}>
+            {fill(t('voice.download'), { size: mb(s.total) })}
+          </Button>
+        )
+      }
+    >
+      <p className="text-sm text-text-2">{fill(t(s.state === 'ready' ? 'voice.ready' : 'voice.absent'), { size: mb(s.total) })}</p>
+      <p className="mt-1 text-sm text-text-3">{t('voice.memory')}</p>
+      {s.state === 'downloading' && <Progress done={s.done} total={s.total} />}
+      {m.error && <p className="mt-2 text-sm text-danger">{m.error}</p>}
+    </Panel>
+  );
+}
+
 function Studio({ settings, update }: { settings: AppSettings; update: (p: Partial<AppSettings>) => Promise<void> }) {
   const t = useT();
   const [name, setName] = useState(settings.studio.name);
@@ -374,6 +407,7 @@ export function SettingsPage({ settings, onSettings }: { settings: AppSettings; 
       <AiConnection settings={settings} update={update} ai={ai} recheck={() => refresh(true)} />
       {ai !== null && <span data-testid="claude-checked" hidden />}
       <Studio settings={settings} update={update} />
+      <Voice />
       <Typesetting tex={tex} theme={settings.beamerTheme} onTheme={(th) => void update({ beamerTheme: th })} onRecheck={() => refresh(true)} />
       {wsChoice && <WorkspaceDialog choice={wsChoice} onDone={onSettings} onClose={() => setWsChoice(null)} />}
     </div>

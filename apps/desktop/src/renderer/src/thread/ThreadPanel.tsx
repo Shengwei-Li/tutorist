@@ -4,6 +4,7 @@ import { Fragment, useEffect, useRef, useState, type KeyboardEvent, type ReactNo
 import type { AgentId } from '../../../shared/ipc';
 import { useT } from '../i18n';
 import { AGENT_LABEL, fill, stepLabel } from './labels';
+import { VoiceButton } from './Voice';
 import type { Approval, Block, ThreadState } from './useThread';
 
 export interface Recipe {
@@ -290,6 +291,12 @@ export function ThreadPanel({
                   <Paperclip size={16} strokeWidth={1.5} />
                 </button>
               )}
+              <VoiceButton
+                onText={(text) => {
+                  setDraft((d) => (d ? `${d}${/\s$/.test(d) ? '' : ' '}${text}` : text));
+                  requestAnimationFrame(() => inputRef.current?.focus());
+                }}
+              />
               {running && thread.startedAt && (
                 <span className="ml-1 text-[12px] text-text-3 tabular-nums">
                   {t('thread.working')} · <Elapsed since={thread.startedAt} />

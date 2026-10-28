@@ -24,6 +24,7 @@ import {
   type WorkspaceChoice,
 } from '../shared/ipc.js';
 import { loadApiKey, loadSettings, saveSettings, storeApiKey } from './settings.js';
+import { SpeechService } from './asr.js';
 import { ThreadService } from './threads.js';
 
 /** Bundled workspace template: repo folder in development, resources folder when packaged. */
@@ -88,7 +89,10 @@ const threads = new ThreadService({
   },
 });
 
+const speech = new SpeechService();
+
 export function closeThreads(): Promise<void> {
+  speech.stop();
   return threads.closeAll();
 }
 
@@ -249,6 +253,13 @@ export function registerIpc(): void {
     const p = ProfileChanges.parse(patch);
     return (await ws()).updateProfile(id, (cur) => mergeProfile(cur, p), 'Update profile');
   });
+
+  // voice input: local speech-to-text
+  h('speech:status', () => speech.status());
+  h('speech:install', (e) => speech.install(e.sender));
+  h('speech:cancelInstall', () => speech.cancelInstall());
+  h('speech:uninstall', () => speech.uninstall());
+  h('speech:transcribe', (_e, samples: unknown) => speech.transcribe(samples));
 
   // proposals: agents propose, the tutor confirms here
   const proposals = async () => new ProposalStore((await ws()).root);

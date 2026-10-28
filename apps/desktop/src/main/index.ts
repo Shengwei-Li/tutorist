@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { app, BrowserWindow, nativeTheme, shell } from 'electron';
+import { app, BrowserWindow, nativeTheme, session, shell } from 'electron';
 import { closeThreads, registerIpc } from './services.js';
 import { runSmoke } from './smoke.js';
 
@@ -57,7 +57,32 @@ function isAppPage(url: string, indexFile: string): boolean {
   return u.protocol === 'file:' && path.resolve(fileURLToPath(u)) === path.resolve(indexFile);
 }
 
+/**
+ * Electron grants every permission unless told otherwise. The app needs only the microphone (voice
+ * input, audio only, for the app's own page) and full screen (the PDF viewer); everything else is
+ * refused: camera, screen capture, location, notifications, USB, serial, HID.
+ */
+function restrictPermissions(indexFile: string): void {
+  const ses = session.defaultSession;
+  const appPage = (url: string | undefined) => !!url && isAppPage(url, indexFile);
+  ses.setPermissionRequestHandler((wc, permission, callback, details) => {
+    if (permission === 'fullscreen') return callback(true);
+    if (permission === 'media') {
+      const types = 'mediaTypes' in details ? (details.mediaTypes ?? []) : [];
+      return callback(appPage(details.requestingUrl) && types.length > 0 && types.every((t) => t === 'audio'));
+    }
+    callback(false);
+  });
+  ses.setPermissionCheckHandler((wc, permission, _origin, details) => {
+    if (permission === 'fullscreen') return true;
+    if (permission === 'media') return details.mediaType !== 'video' && appPage(details.requestingUrl ?? wc?.getURL());
+    return false;
+  });
+  ses.setDevicePermissionHandler(() => false);
+}
+
 app.whenReady().then(() => {
+  restrictPermissions(path.join(import.meta.dirname, '../renderer/index.html'));
   registerIpc();
   const win = createWindow();
   if (smokeDir) win.webContents.once('did-finish-load', () => void runSmoke(win, smokeDir));
