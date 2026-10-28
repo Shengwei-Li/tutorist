@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { cp, copyFile, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { app, dialog, ipcMain, shell, type WebContents } from 'electron';
 import { z } from 'zod';
 import { NewStudentInput, readJson, WorkspaceService } from '@tutordesk/core';
+import { LessonStatus } from '@tutordesk/core/schemas';
 import { ARTIFACT_SCHEMAS, ArtifactKind, LessonPlan, type ArtifactDoc } from '@tutordesk/core/artifacts';
 import { LessonPipeline, WritingReviewer, type PipelineEvent } from '@tutordesk/pipeline';
 import { ApiProvider, ClaudeCliProvider, DEFAULT_MODELS, type AgentProvider } from '@tutordesk/providers';
@@ -20,6 +21,7 @@ import {
   type StudentDetail,
   type SubmissionDetail,
   type TexStatus,
+  type WorkspaceChoice,
 } from '../shared/ipc.js';
 import { loadApiKey, loadSettings, saveSettings, storeApiKey } from './settings.js';
 import { ThreadService } from './threads.js';
@@ -47,6 +49,30 @@ async function writeToolboxConfig(root: string): Promise<void> {
   await writeFile(path.join(root, '.tutordesk', 'toolbox.json'), `${JSON.stringify({ studio: s.studio, tutorName: s.tutorName }, null, 2)}
 `, 'utf8');
 }
+
+/** What the profile editor may change; the merged profile is validated again as a whole. */
+const ProfilePatch = z
+  .object({
+    name: z.string().trim().min(1),
+    ageOrGrade: z.string().optional(),
+    firstLanguage: z.string(),
+    glossLanguage: z.enum(['zh', 'en-en', 'none']),
+    delivery: z.object({ mode: z.enum(['online', 'offline', 'mixed']), format: z.enum(['one-to-one', 'small-group']), sessionsPerWeek: z.number().int().min(1).max(14), minutesPerSession: z.number().int().min(15).max(240) }).partial(),
+    goal: z.object({ exam: z.enum(['ielts-academic', 'ielts-general', 'pte-academic', 'pte-core']), examDates: z.array(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)), targetOverall: z.number(), targetBySkill: z.record(z.string(), z.number()), purpose: z.string().optional() }).partial(),
+    interests: z.array(z.string()),
+    learningStyle: z.string().optional(),
+    parent: z.object({ name: z.string().optional(), contact: z.string().optional(), cadence: z.string().optional(), tone: z.enum(['formal', 'warm']) }).optional(),
+  })
+  .partial();
+
+const LessonPatch = z
+  .object({
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    minutes: z.number().int().min(15).max(240),
+    topic: z.string(),
+    status: LessonStatus,
+  })
+  .partial();
 
 const claude = new ClaudeCliProvider({ auth: 'subscription' });
 
@@ -189,10 +215,29 @@ export function registerIpc(): void {
     if (workspace && workspace.root === saved.workspaceRoot) await writeToolboxConfig(workspace.root);
     return saved;
   });
-  h('settings:chooseWorkspace', async () => {
+  h('settings:pickWorkspace', async (): Promise<WorkspaceChoice | null> => {
     const r = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'] });
     if (r.canceled || !r.filePaths[0]) return null;
-    return saveSettings({ workspaceRoot: r.filePaths[0] });
+    const dir = path.resolve(r.filePaths[0]);
+    const current = path.resolve((await loadSettings()).workspaceRoot);
+    const names = await readdir(dir).catch(() => [] as string[]);
+    const students = await readdir(path.join(current, 'students')).catch(() => [] as string[]);
+    return { path: dir, same: dir === current, isWorkspace: names.includes('workspace.json'), empty: names.length === 0, currentStudents: students.length, inside: dir.startsWith(current + path.sep) };
+  });
+  h('settings:switchWorkspace', async (_e, dir: string, move: boolean) => {
+    const target = path.resolve(dir);
+    const current = path.resolve((await loadSettings()).workspaceRoot);
+    if (target === current) return loadSettings();
+    if (target.startsWith(current + path.sep)) throw new Error('The new folder cannot be inside the current one.');
+    // Agents run in the workspace; stop them before it changes under them.
+    await threads.closeAll();
+    if (move) {
+      const names = await readdir(target).catch(() => [] as string[]);
+      if (names.length) throw new Error('Choose an empty folder to move the workspace into.');
+      // Copy, never move: the old folder stays as it was until the tutor removes it.
+      await cp(current, target, { recursive: true, errorOnExist: true, force: false });
+    }
+    return saveSettings({ workspaceRoot: target });
   });
   h('settings:setApiKey', (_e, key: string) => storeApiKey(key.trim()));
   h('settings:hasApiKey', async () => !!(await loadApiKey((await loadSettings()).api.gateway)));
@@ -212,9 +257,38 @@ export function registerIpc(): void {
   h('students:reveal', async (_e, id: string) => {
     await shell.openPath(await (await ws()).studentDir(id));
   });
+  h('students:update', async (_e, id: string, patch: unknown) => {
+    const p = ProfilePatch.parse(patch);
+    return (await ws()).updateProfile(id, (cur) => ({
+      ...cur,
+      ...p,
+      delivery: { ...cur.delivery, ...p.delivery },
+      goal: { ...cur.goal, ...p.goal },
+    }), 'Update profile');
+  });
+  h('students:setArchived', async (_e, id: string, archived: boolean) =>
+    (await ws()).updateProfile(id, (cur) => ({ ...cur, archived: z.boolean().parse(archived) }), archived ? 'Archive student' : 'Restore student'),
+  );
+  h('students:delete', async (_e, id: string) => {
+    await (await ws()).deleteStudent(id);
+  });
+  h('errors:setStatus', async (_e, id: string, errorId: string, status: unknown) => {
+    const next = z.enum(['open', 'practicing', 'resolved']).parse(status);
+    await (await ws()).updateErrors(id, (e) => (e.id === errorId ? { ...e, status: next } : e), `Mark error ${errorId} ${next}`);
+  });
+  h('errors:delete', async (_e, id: string, errorId: string) => {
+    await (await ws()).updateErrors(id, (e) => (e.id === errorId ? null : e), `Remove error ${errorId}`);
+  });
 
   // lessons
   h('lessons:get', (_e, s: string, l: string) => lessonDetail(s, l));
+  h('lessons:update', async (_e, s: string, l: string, patch: unknown) => {
+    const p = LessonPatch.parse(patch);
+    return (await ws()).updateLesson(s, l, (x) => ({ ...x, ...p }), `Update lesson ${l}`);
+  });
+  h('lessons:delete', async (_e, s: string, l: string) => {
+    await (await ws()).deleteLesson(s, l);
+  });
   h('lessons:setBrief', async (_e, s: string, l: string, brief: string) => (await ws()).updateLesson(s, l, (x) => ({ ...x, brief })));
   h('lessons:attachMaterial', async (_e, s: string, l: string) => {
     const r = await dialog.showOpenDialog({ properties: ['openFile', 'multiSelections'], filters: [{ name: 'Text', extensions: ['txt', 'md'] }] });
@@ -256,6 +330,9 @@ export function registerIpc(): void {
   });
 
   // submissions
+  h('submissions:delete', async (_e, s: string, sub: string) => {
+    await (await ws()).deleteSubmission(s, sub);
+  });
   h('submissions:createText', async (_e, s: string, input: { kind: 'writing-task1' | 'writing-task2'; prompt: string; text: string }) => (await ws()).createSubmission(s, { ...input, date: today() }));
   h('submissions:createFromImage', async (_e, s: string, kind: 'writing-task1' | 'writing-task2') => {
     const r = await dialog.showOpenDialog({ properties: ['openFile'], filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp'] }] });

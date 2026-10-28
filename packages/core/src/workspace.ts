@@ -1,4 +1,4 @@
-import { cp, mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import type { z } from 'zod';
 import path from 'node:path';
 import { appendJsonl, readJson, readJsonl, writeFileAtomic, writeJson, type Parsed } from './fsio.js';
@@ -130,6 +130,7 @@ export class WorkspaceService {
       name: data.name,
       ageOrGrade: data.ageOrGrade,
       firstLanguage: data.firstLanguage ?? 'zh',
+      delivery: data.delivery ? { ...data.delivery, format: 'one-to-one' } : undefined,
       goal: {
         exam: data.exam,
         examDates: data.examDate ? [data.examDate] : [],
@@ -177,6 +178,48 @@ export class WorkspaceService {
     });
   }
 
+  /**
+   * Remove a student from the workspace. Nothing is destroyed: the folder (with its own git history)
+   * moves to .tutordesk/trash, where it can be moved back by hand.
+   */
+  async deleteStudent(id: string): Promise<string> {
+    const dir = await this.studentDir(id);
+    if (!(await exists(path.join(dir, 'profile.json')))) throw new Error(`No student ${id}`);
+    const stamp = nowIso().replace(/[:.]/g, '-');
+    const dest = path.join(this.root, '.tutordesk', 'trash', 'students', `${id}-${stamp}`);
+    await mkdir(path.dirname(dest), { recursive: true });
+    await rename(dir, dest);
+    return dest;
+  }
+
+  /** Rewrite the error log: `change` returns the new entry, or null to remove it. Unparseable lines are kept. */
+  async updateErrors(id: string, change: (e: ErrorInstance) => ErrorInstance | null, message: string): Promise<void> {
+    const dir = await this.studentDir(id);
+    const file = path.join(dir, 'error-log.jsonl');
+    await withDirLock(dir, 'update error log', async () => {
+      const raw = await readFile(file, 'utf8').catch(() => '');
+      const out: string[] = [];
+      for (const line of raw.split(/\r?\n/)) {
+        if (!line.trim()) continue;
+        let parsed: ErrorInstance | null = null;
+        try {
+          const r = ErrorInstance.safeParse(JSON.parse(line));
+          if (r.success) parsed = r.data;
+        } catch {
+          // keep the line as it is
+        }
+        if (!parsed) {
+          out.push(line);
+          continue;
+        }
+        const next = change(parsed);
+        if (next) out.push(JSON.stringify(ErrorInstance.parse(next)));
+      }
+      await writeFileAtomic(file, out.length ? `${out.join('\n')}\n` : '');
+      await new StudentGit(dir).commitAll(message);
+    });
+  }
+
   async appendError(id: string, err: ErrorInstance): Promise<void> {
     const value = ErrorInstance.parse(err);
     await appendJsonl(path.join(await this.studentDir(id), 'error-log.jsonl'), value);
@@ -199,7 +242,8 @@ export class WorkspaceService {
       const r = await readJson(path.join(lessonsDir, n, 'lesson.json'), LessonMeta);
       if (r.ok) out.push(r.value);
     }
-    return out;
+    // By the date the lesson takes place (it can be moved), then by its number.
+    return out.sort((a, b) => a.date.localeCompare(b.date) || a.number - b.number);
   }
 
   async createLesson(id: string, opts: { date: string; minutes?: number; topic?: string }): Promise<LessonMeta> {
@@ -243,6 +287,14 @@ export class WorkspaceService {
     await writeJson(path.join(dir, 'lesson.json'), next);
     if (message) await this.commit(id, message);
     return next;
+  }
+
+  /** Remove a lesson and everything prepared for it. The student's git history keeps a copy. */
+  async deleteLesson(id: string, lessonId: string): Promise<void> {
+    const dir = await this.lessonDir(id, lessonId);
+    await this.readLesson(id, lessonId);
+    await rm(dir, { recursive: true, force: true });
+    await this.commit(id, `Delete lesson ${lessonId}`);
   }
 
   /** Read a JSON file inside a lesson folder, validated; null when it does not exist yet. */
@@ -335,6 +387,13 @@ export class WorkspaceService {
     if (change.text !== undefined) await writeFileAtomic(path.join(dir, 'text.md'), change.text);
     if (message) await this.commit(id, message);
     return next;
+  }
+
+  /** Remove an essay and its review. The student's git history keeps a copy. */
+  async deleteSubmission(id: string, subId: string): Promise<void> {
+    const { dir } = await this.readSubmission(id, subId);
+    await rm(dir, { recursive: true, force: true });
+    await this.commit(id, `Delete submission ${subId}`);
   }
 
   async history(id: string, limit?: number) {

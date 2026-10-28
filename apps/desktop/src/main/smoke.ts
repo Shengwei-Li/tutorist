@@ -56,13 +56,15 @@ export async function runSmoke(win: BrowserWindow, outDir: string): Promise<void
     await until(q('student-name'), 5000);
     await type('student-name', 'Mina Park');
     await click('student-create');
-    const ok = await until(q('lesson-create'), 10_000);
+    const ok = await until(q('lesson-new'), 10_000);
     await shot('02-student');
     return ok;
   });
   await step('add lesson', async () => {
+    await click('lesson-new');
+    await until(q('lesson-topic'), 5000);
     await type('lesson-topic', 'Task 2 position');
-    await click('lesson-create');
+    await click('lesson-save');
     return until(q('open-lesson-1'), 5000);
   });
 
@@ -129,6 +131,52 @@ export async function runSmoke(win: BrowserWindow, outDir: string): Promise<void
       return true;
     });
   }
+
+  await step('student: edit profile', async () => {
+    await click('nav-students');
+    await until(q('profile-edit'), 5000);
+    await click('profile-edit');
+    await until(q('profile-name'), 5000);
+    await wait(1000);
+    await shot('12-profile-edit');
+    await type('profile-name', 'Mina Park (Sat)');
+    await click('profile-save');
+    return until(`[...document.querySelectorAll('h1')].some((h) => h.textContent === 'Mina Park (Sat)')`, 5000);
+  });
+  await step('student: plan ahead and delete a lesson', async () => {
+    const d = new Date();
+    d.setDate(d.getDate() + 3);
+    const ahead = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    await click('lesson-new');
+    await until(q('lesson-date'), 5000);
+    await type('lesson-date', ahead);
+    await type('lesson-topic', 'Speaking part 2');
+    await click('lesson-save');
+    if (!(await until(q('open-lesson-2'), 5000))) return false;
+    await click('lesson-menu-2');
+    await wait(200);
+    await shot('13-lesson-menu');
+    await click('lesson-delete');
+    await until(q('confirm-delete'), 5000);
+    await shot('14-lesson-delete');
+    await click('confirm-delete');
+    const gone = await until(`!${q('open-lesson-2')}`, 5000);
+    // Plan the lesson again so Today shows something coming up.
+    await click('lesson-new');
+    await until(q('lesson-date'), 5000);
+    await type('lesson-date', ahead);
+    await type('lesson-topic', 'Speaking part 2');
+    await click('lesson-save');
+    await until(q('open-lesson-2'), 5000);
+    await shot('15-student');
+    return gone;
+  });
+  await step('today: upcoming', async () => {
+    await click('nav-today');
+    const ok = await until(q('today-lesson-mina-park-ielts-2'), 10_000);
+    await shot('16-today');
+    return ok;
+  });
 
   await step('settings', async () => {
     await click('nav-settings');

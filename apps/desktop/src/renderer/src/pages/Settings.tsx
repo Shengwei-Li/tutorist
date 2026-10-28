@@ -1,10 +1,10 @@
-import { Button, Field, KeyValue, Panel, Select, StatusMark, TextInput } from '@tutordesk/ui';
+import { Button, Dialog, Field, KeyValue, Panel, Select, StatusMark, TextInput } from '@tutordesk/ui';
 import { useEffect, useState } from 'react';
 import type { ModelTier } from '@tutordesk/providers/types';
-import { AGENTS, API_GATEWAYS, BEAMER_THEMES, type AgentMode, type AppSettings, type ApiGateway, type BeamerTheme, type CompileOutcome, type CompileSampleRequest } from '../../../shared/ipc';
+import { AGENTS, API_GATEWAYS, BEAMER_THEMES, type AgentMode, type AppSettings, type ApiGateway, type BeamerTheme, type CompileOutcome, type CompileSampleRequest, type WorkspaceChoice } from '../../../shared/ipc';
 import { useT, type TKey } from '../i18n';
 import { useAgentStatus } from '../thread/AgentControls';
-import { AGENT_LABEL } from '../thread/labels';
+import { AGENT_LABEL, fill } from '../thread/labels';
 import { PdfFrame } from '../PdfFrame';
 import { useHealth, type AiHealth } from '../useHealth';
 
@@ -266,10 +266,74 @@ function Studio({ settings, update }: { settings: AppSettings; update: (p: Parti
   );
 }
 
+/**
+ * Changing the workspace says what happens to the students: an existing workspace is opened as it is,
+ * an empty folder can receive a copy of the current one, and anything else starts afresh there.
+ */
+function WorkspaceDialog({ choice, onDone, onClose }: { choice: WorkspaceChoice; onDone: (s: AppSettings) => void; onClose: () => void }) {
+  const t = useT();
+  const [busy, setBusy] = useState<'move' | 'switch' | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const go = async (move: boolean) => {
+    setBusy(move ? 'move' : 'switch');
+    setError(null);
+    try {
+      onDone(await window.tutordesk.settings.switchWorkspace(choice.path, move));
+      onClose();
+    } catch (e) {
+      setError((e as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ''));
+      setBusy(null);
+    }
+  };
+  const vars = { path: choice.path, n: choice.currentStudents };
+  const canMove = choice.empty && choice.currentStudents > 0;
+  return (
+    <Dialog
+      title={t('settings.ws.title')}
+      onClose={onClose}
+      actions={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            {t('common.cancel')}
+          </Button>
+          {!choice.inside && (
+            <Button variant={canMove ? 'secondary' : 'primary'} disabled={busy !== null} onClick={() => void go(false)}>
+              {choice.isWorkspace ? t('settings.ws.open') : t('settings.ws.startNew')}
+            </Button>
+          )}
+          {canMove && (
+            <Button variant="primary" disabled={busy !== null} onClick={() => void go(true)}>
+              {t('settings.ws.move')}
+              {busy === 'move' && '…'}
+            </Button>
+          )}
+        </>
+      }
+    >
+      <div className="flex flex-col gap-2 text-sm text-text-2">
+        <code className="font-mono text-xs break-all text-text">{choice.path}</code>
+        {choice.inside ? (
+          <p>{t('settings.ws.inside')}</p>
+        ) : choice.isWorkspace ? (
+          <p>{fill(t('settings.ws.openBody'), vars)}</p>
+        ) : (
+          <>
+            {canMove && <p>{fill(t('settings.ws.moveBody'), vars)}</p>}
+            {!choice.empty && choice.currentStudents > 0 && <p>{fill(t('settings.ws.notEmpty'), vars)}</p>}
+            <p>{t('settings.ws.startBody')}</p>
+          </>
+        )}
+        {error && <p className="text-danger">{error}</p>}
+      </div>
+    </Dialog>
+  );
+}
+
 export function SettingsPage({ settings, onSettings }: { settings: AppSettings; onSettings: (s: AppSettings) => void }) {
   const t = useT();
   const { ai, tex, refresh } = useHealth();
   const update = async (patch: Partial<AppSettings>) => onSettings(await window.tutordesk.settings.update(patch));
+  const [wsChoice, setWsChoice] = useState<WorkspaceChoice | null>(null);
 
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-4 px-8 py-8">
@@ -286,8 +350,8 @@ export function SettingsPage({ settings, onSettings }: { settings: AppSettings; 
                     variant="ghost"
                     className="h-7 shrink-0 whitespace-nowrap"
                     onClick={async () => {
-                      const s = await window.tutordesk.settings.chooseWorkspace();
-                      if (s) onSettings(s);
+                      const c = await window.tutordesk.settings.pickWorkspace();
+                      if (c && !c.same) setWsChoice(c);
                     }}
                   >
                     {t('settings.change')}
@@ -311,6 +375,7 @@ export function SettingsPage({ settings, onSettings }: { settings: AppSettings; 
       {ai !== null && <span data-testid="claude-checked" hidden />}
       <Studio settings={settings} update={update} />
       <Typesetting tex={tex} theme={settings.beamerTheme} onTheme={(th) => void update({ beamerTheme: th })} onRecheck={() => refresh(true)} />
+      {wsChoice && <WorkspaceDialog choice={wsChoice} onDone={onSettings} onClose={() => setWsChoice(null)} />}
     </div>
   );
 }

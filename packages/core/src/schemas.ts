@@ -81,6 +81,8 @@ export const StudentProfile = z
         tone: z.enum(['formal', 'warm']).default('warm'),
       })
       .optional(),
+    /** Finished or paused students leave the main list but keep all their files. */
+    archived: z.boolean().default(false),
     createdAt: IsoDateTime,
     updatedAt: IsoDateTime,
   })
@@ -104,6 +106,14 @@ export const NewStudentInput = z.object({
   examDate: IsoDate.optional(),
   ageOrGrade: z.string().optional(),
   firstLanguage: z.string().optional(),
+  /** Asked when the student is added, so nothing about the lessons is assumed. */
+  delivery: z
+    .object({
+      mode: z.enum(['online', 'offline', 'mixed']),
+      sessionsPerWeek: z.number().int().min(1).max(14),
+      minutesPerSession: z.number().int().min(15).max(240),
+    })
+    .optional(),
 });
 export type NewStudentInput = z.infer<typeof NewStudentInput>;
 

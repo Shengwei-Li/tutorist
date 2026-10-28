@@ -7,7 +7,8 @@ const api: DesktopApi = {
   settings: {
     get: () => invoke('settings:get'),
     update: (patch) => invoke('settings:update', patch),
-    chooseWorkspace: () => invoke('settings:chooseWorkspace'),
+    pickWorkspace: () => invoke('settings:pickWorkspace'),
+    switchWorkspace: (path, move) => invoke('settings:switchWorkspace', path, move),
     setApiKey: (key) => invoke('settings:setApiKey', key),
     hasApiKey: () => invoke('settings:hasApiKey'),
     defaultModels: (gateway) => invoke('settings:defaultModels', gateway),
@@ -18,10 +19,19 @@ const api: DesktopApi = {
     get: (id) => invoke('students:get', id),
     createLesson: (id, opts) => invoke('students:createLesson', id, opts),
     reveal: (id) => invoke('students:reveal', id),
+    update: (id, patch) => invoke('students:update', id, patch),
+    setArchived: (id, archived) => invoke('students:setArchived', id, archived),
+    delete: (id) => invoke('students:delete', id),
+  },
+  errors: {
+    setStatus: (s, e, status) => invoke('errors:setStatus', s, e, status),
+    delete: (s, e) => invoke('errors:delete', s, e),
   },
   lessons: {
     get: (s, l) => invoke('lessons:get', s, l),
     setBrief: (s, l, brief) => invoke('lessons:setBrief', s, l, brief),
+    update: (s, l, patch) => invoke('lessons:update', s, l, patch),
+    delete: (s, l) => invoke('lessons:delete', s, l),
     attachMaterial: (s, l) => invoke('lessons:attachMaterial', s, l),
     plan: (s, l, opts) => invoke('lessons:plan', s, l, opts),
     confirmPlan: (s, l, plan) => invoke('lessons:confirmPlan', s, l, plan),
@@ -31,6 +41,7 @@ const api: DesktopApi = {
     revealOutput: (s, l) => invoke('lessons:revealOutput', s, l),
   },
   submissions: {
+    delete: (s, sub) => invoke('submissions:delete', s, sub),
     createText: (s, input) => invoke('submissions:createText', s, input),
     createFromImage: (s, kind) => invoke('submissions:createFromImage', s, kind),
     get: (s, sub) => invoke('submissions:get', s, sub),

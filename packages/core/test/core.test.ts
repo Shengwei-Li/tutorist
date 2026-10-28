@@ -135,3 +135,64 @@ describe('WorkspaceService', () => {
     await expect(ws.studentDir('../../etc')).rejects.toBeInstanceOf(PathEscapeError);
   });
 });
+
+describe('editing and removing', () => {
+  async function setup() {
+    const ws = await WorkspaceService.init(path.join(tmp, 'ws'));
+    const p = await ws.createStudent({ name: 'Mina Park', exam: 'ielts-academic', targetOverall: 6.5, delivery: { mode: 'offline', sessionsPerWeek: 1, minutesPerSession: 60 } });
+    return { ws, p };
+  }
+
+  it('records the lesson schedule the tutor gave, not a default', async () => {
+    const { ws, p } = await setup();
+    expect(p.delivery).toMatchObject({ mode: 'offline', sessionsPerWeek: 1, minutesPerSession: 60 });
+    expect(p.archived).toBe(false);
+    const l = await ws.createLesson(p.id, { date: '2026-11-02' });
+    expect(l.minutes).toBe(60);
+  });
+
+  it('moves lessons, lists them by date and deletes one', async () => {
+    const { ws, p } = await setup();
+    const a = await ws.createLesson(p.id, { date: '2026-11-05' });
+    const b = await ws.createLesson(p.id, { date: '2026-11-01' });
+    expect((await ws.listLessons(p.id)).map((l) => l.id)).toEqual([b.id, a.id]);
+    await ws.updateLesson(p.id, b.id, (l) => ({ ...l, date: '2026-11-09', status: 'taught' }), `Update lesson ${b.id}`);
+    expect((await ws.listLessons(p.id)).map((l) => l.id)).toEqual([a.id, b.id]);
+    await ws.deleteLesson(p.id, a.id);
+    expect((await ws.listLessons(p.id)).map((l) => l.id)).toEqual([b.id]);
+    expect((await ws.history(p.id, 1))[0]!.message).toBe(`Delete lesson ${a.id}`);
+    await expect(ws.deleteLesson(p.id, '../../x')).rejects.toBeInstanceOf(PathEscapeError);
+  });
+
+  it('deletes an essay', async () => {
+    const { ws, p } = await setup();
+    const s = await ws.createSubmission(p.id, { kind: 'writing-task2', text: 'An essay.', date: '2026-11-01' });
+    await ws.deleteSubmission(p.id, s.id);
+    expect(await ws.listSubmissions(p.id)).toEqual([]);
+  });
+
+  it('marks and removes error log entries, keeping lines it cannot read', async () => {
+    const { ws, p } = await setup();
+    const e = { code: 'W-TR-POS', excerpt: 'x', source: 'submissions/a', date: '2026-11-01' };
+    await ws.appendError(p.id, { ...e, id: 'e1', status: 'open' });
+    await ws.appendError(p.id, { ...e, id: 'e2', status: 'open' });
+    const file = path.join(await ws.studentDir(p.id), 'error-log.jsonl');
+    await writeFile(file, `${await readFile(file, 'utf8')}not json\n`);
+    await ws.updateErrors(p.id, (x) => (x.id === 'e1' ? { ...x, status: 'resolved' } : x), 'Mark error e1 resolved');
+    await ws.updateErrors(p.id, (x) => (x.id === 'e2' ? null : x), 'Remove error e2');
+    const r = await ws.readErrors(p.id);
+    expect(r.items.map((x) => [x.id, x.status])).toEqual([['e1', 'resolved']]);
+    expect(r.bad).toHaveLength(1);
+  });
+
+  it('archives a student and moves a deleted one to the trash with its history', async () => {
+    const { ws, p } = await setup();
+    const archived = await ws.updateProfile(p.id, (x) => ({ ...x, archived: true }), 'Archive student');
+    expect(archived.archived).toBe(true);
+    const dest = await ws.deleteStudent(p.id);
+    expect(dest).toContain(path.join('.tutordesk', 'trash', 'students'));
+    expect(await readFile(path.join(dest, 'profile.json'), 'utf8')).toContain('Mina Park');
+    expect(await ws.listStudents()).toEqual([]);
+    await expect(ws.deleteStudent('../x')).rejects.toBeInstanceOf(PathEscapeError);
+  });
+});

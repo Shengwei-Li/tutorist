@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import { BookOpen, CalendarDays, CheckSquare, LayoutTemplate, Settings as SettingsIcon, Sun, Users } from 'lucide-react';
+import { Settings as SettingsIcon, Sun, Users } from 'lucide-react';
 import { useCallback, useEffect, useState, type ComponentType } from 'react';
 import type { AppSettings } from '../../shared/ipc';
 import { LangProvider, useT } from './i18n';
@@ -9,15 +9,12 @@ import { StudentsPage } from './pages/Students';
 import { SubmissionPage } from './pages/Submission';
 import { TodayPage } from './pages/Today';
 
-export type Route = 'today' | 'students' | 'schedule' | 'review' | 'library' | 'templates' | 'settings';
+export type Route = 'today' | 'students' | 'settings';
 
+// Schedule, review, library and templates come back here when they do something (SPEC milestones).
 const NAV: { id: Route; icon: ComponentType<{ size?: number; strokeWidth?: number }>; key: Parameters<ReturnType<typeof useT>>[0] }[] = [
   { id: 'today', icon: Sun, key: 'nav.today' },
   { id: 'students', icon: Users, key: 'nav.students' },
-  { id: 'schedule', icon: CalendarDays, key: 'nav.schedule' },
-  { id: 'review', icon: CheckSquare, key: 'nav.review' },
-  { id: 'library', icon: BookOpen, key: 'nav.library' },
-  { id: 'templates', icon: LayoutTemplate, key: 'nav.templates' },
 ];
 
 function NavItem({ id, active, onClick, icon: Icon, label }: { id: Route; active: boolean; onClick: () => void; icon: (typeof NAV)[number]['icon']; label: string }) {
@@ -86,7 +83,7 @@ function Shell({ settings, onSettings }: { settings: AppSettings; onSettings: (s
         </div>
       </aside>
       <main className={clsx('min-w-0 flex-1', detail ? 'overflow-hidden' : 'overflow-auto')}>
-        {route === 'today' && <TodayPage onOpenStudent={openStudent} onOpenSettings={() => setRoute('settings')} />}
+        {route === 'today' && <TodayPage onOpenStudent={openStudent} onOpenLesson={(s, l) => void openDetail('lesson', s, l)} onOpenSettings={() => setRoute('settings')} />}
         {route === 'students' && detail?.kind === 'lesson' && (
           <LessonPage key={detail.id} studentId={detail.studentId} lessonId={detail.id} studentName={detail.studentName} theme={settings.beamerTheme} onBack={() => setDetail(null)} />
         )}
@@ -102,12 +99,6 @@ function Shell({ settings, onSettings }: { settings: AppSettings; onSettings: (s
           />
         )}
         {route === 'settings' && <SettingsPage settings={settings} onSettings={onSettings} />}
-        {['schedule', 'review', 'library', 'templates'].includes(route) && (
-          <div className="mx-auto max-w-3xl px-8 py-8">
-            <h1 className="mb-2 text-xl font-semibold">{t(`nav.${route}` as 'nav.schedule')}</h1>
-            <p className="text-sm text-text-2">{t('later.body')}</p>
-          </div>
-        )}
       </main>
     </div>
   );

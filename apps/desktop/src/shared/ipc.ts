@@ -174,11 +174,31 @@ export interface AgentStatus {
   detail?: string;
 }
 
+/** A folder the tutor picked for the workspace, and what switching to it would mean. */
+export interface WorkspaceChoice {
+  path: string;
+  same: boolean;
+  /** Already a TutorDesk workspace (switching opens it as it is). */
+  isWorkspace: boolean;
+  empty: boolean;
+  /** Students in the current workspace, which a move would copy. */
+  currentStudents: number;
+  /** Inside the current workspace: not allowed. */
+  inside: boolean;
+}
+
+export type ProfilePatch = Partial<Pick<StudentProfile, 'name' | 'ageOrGrade' | 'firstLanguage' | 'glossLanguage' | 'interests' | 'learningStyle' | 'parent'>> & {
+  delivery?: Partial<StudentProfile['delivery']>;
+  goal?: Partial<StudentProfile['goal']>;
+};
+
 export interface DesktopApi {
   settings: {
     get(): Promise<AppSettings>;
     update(patch: Partial<AppSettings>): Promise<AppSettings>;
-    chooseWorkspace(): Promise<AppSettings | null>;
+    pickWorkspace(): Promise<WorkspaceChoice | null>;
+    /** move: copy the current workspace into the (empty) folder first; the old folder is kept. */
+    switchWorkspace(path: string, move: boolean): Promise<AppSettings>;
     /** Stores the key encrypted with the OS keychain; the renderer never reads it back. */
     setApiKey(key: string): Promise<{ stored: boolean; encrypted: boolean }>;
     hasApiKey(): Promise<boolean>;
@@ -190,10 +210,20 @@ export interface DesktopApi {
     get(id: string): Promise<StudentDetail>;
     createLesson(id: string, opts: { date: string; topic?: string; minutes?: number }): Promise<LessonMeta>;
     reveal(id: string): Promise<void>;
+    update(id: string, patch: ProfilePatch): Promise<StudentProfile>;
+    setArchived(id: string, archived: boolean): Promise<StudentProfile>;
+    /** Moves the student's folder to the workspace trash (.tutordesk/trash). */
+    delete(id: string): Promise<void>;
+  };
+  errors: {
+    setStatus(studentId: string, errorId: string, status: ErrorInstance['status']): Promise<void>;
+    delete(studentId: string, errorId: string): Promise<void>;
   };
   lessons: {
     get(studentId: string, lessonId: string): Promise<LessonDetail>;
     setBrief(studentId: string, lessonId: string, brief: string): Promise<LessonMeta>;
+    update(studentId: string, lessonId: string, patch: Partial<Pick<LessonMeta, 'date' | 'minutes' | 'topic' | 'status'>>): Promise<LessonMeta>;
+    delete(studentId: string, lessonId: string): Promise<void>;
     attachMaterial(studentId: string, lessonId: string): Promise<LessonMeta | null>;
     plan(studentId: string, lessonId: string, opts: { brief?: string; outputs: ArtifactKind[] }): Promise<string>;
     confirmPlan(studentId: string, lessonId: string, plan: LessonPlan): Promise<void>;
@@ -203,6 +233,7 @@ export interface DesktopApi {
     revealOutput(studentId: string, lessonId: string): Promise<void>;
   };
   submissions: {
+    delete(studentId: string, subId: string): Promise<void>;
     createText(studentId: string, input: { kind: SubmissionMeta['kind']; prompt: string; text: string }): Promise<SubmissionMeta>;
     createFromImage(studentId: string, kind: SubmissionMeta['kind']): Promise<SubmissionMeta | null>;
     get(studentId: string, subId: string): Promise<SubmissionDetail>;
