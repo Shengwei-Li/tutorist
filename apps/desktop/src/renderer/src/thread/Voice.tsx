@@ -1,7 +1,7 @@
 import { Button, Dialog } from '@tutordesk/ui';
 import { Mic, Square } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { SpeechStatus } from '../../../shared/ipc';
+import type { SpeechStatus, VoiceEngine } from '../../../shared/ipc';
 import { useT } from '../i18n';
 import { cleanError } from '../useRun';
 import { fill } from './labels';
@@ -33,7 +33,12 @@ export function useSpeechModel() {
     refresh();
   };
   const cancel = () => void window.tutordesk.speech.cancelInstall();
-  return { status, error, install, uninstall, cancel, refresh };
+  const switchEngine = async (voiceEngine: VoiceEngine) => {
+    setError(null);
+    await window.tutordesk.settings.update({ voiceEngine });
+    refresh();
+  };
+  return { status, error, install, uninstall, cancel, refresh, switchEngine };
 }
 
 export const mb = (n: number) => `${Math.round(n / 1e6)} MB`;
@@ -63,8 +68,9 @@ async function to16k(chunks: Float32Array[], rate: number): Promise<Float32Array
 type Phase = 'idle' | 'recording' | 'transcribing';
 
 /**
- * Microphone recording for voice input. Audio stays in memory until it is transcribed on this
- * computer; nothing is saved. Recording stops by itself after two minutes.
+ * Microphone recording for voice input. Audio stays in memory until it is transcribed (on this
+ * computer, or by the tutor's AI service if they chose that); nothing is saved. Recording stops by
+ * itself after two minutes.
  */
 function useRecorder(onText: (text: string) => void) {
   const [phase, setPhase] = useState<Phase>('idle');
@@ -142,7 +148,10 @@ function useRecorder(onText: (text: string) => void) {
   return { phase, seconds, error, start, stop };
 }
 
-/** Download the model once, after saying what it is and where the audio goes. */
+/**
+ * Before the first recording, say where the audio goes: download the local model once, or (when the
+ * tutor's AI service takes audio) send recordings there instead.
+ */
 export function VoiceSetup({ onReady, onClose }: { onReady: () => void; onClose: () => void }) {
   const t = useT();
   const m = useSpeechModel();
@@ -151,6 +160,25 @@ export function VoiceSetup({ onReady, onClose }: { onReady: () => void; onClose:
     if (s?.state === 'ready') onReady();
   }, [s?.state, onReady]);
   const downloading = s?.state === 'downloading';
+  if (s?.engine === 'cloud')
+    return (
+      <Dialog
+        title={t('voice.setupTitle')}
+        onClose={onClose}
+        actions={
+          <>
+            <Button variant="ghost" onClick={onClose}>
+              {t('common.cancel')}
+            </Button>
+            <Button data-testid="voice-use-local" variant="primary" onClick={() => void m.switchEngine('local')}>
+              {t('voice.useLocal')}
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm text-text-2">{t('voice.cloud.absent')}</p>
+      </Dialog>
+    );
   return (
     <Dialog
       title={t('voice.setupTitle')}
@@ -160,6 +188,11 @@ export function VoiceSetup({ onReady, onClose }: { onReady: () => void; onClose:
           <Button variant="ghost" onClick={() => (downloading ? m.cancel() : onClose())}>
             {t('common.cancel')}
           </Button>
+          {s?.cloud && !downloading && (
+            <Button data-testid="voice-use-cloud" onClick={() => void m.switchEngine('cloud')}>
+              {t('voice.useCloud')}
+            </Button>
+          )}
           <Button data-testid="voice-install" variant="primary" disabled={!s || downloading} onClick={() => void m.install()}>
             {fill(t('voice.download'), { size: s ? mb(s.total) : '' })}
           </Button>
@@ -167,6 +200,7 @@ export function VoiceSetup({ onReady, onClose }: { onReady: () => void; onClose:
       }
     >
       <p className="text-sm text-text-2">{fill(t('voice.setupBody'), { model: s ? t(`voice.model.${s.language}`) : '' })}</p>
+      {s?.cloud && !downloading && <p className="mt-2 text-sm text-text-3">{t('voice.cloudOffer')}</p>}
       {downloading && s && <Progress done={s.done} total={s.total} />}
       {m.error && <p className="mt-2 text-sm text-danger">{m.error}</p>}
     </Dialog>

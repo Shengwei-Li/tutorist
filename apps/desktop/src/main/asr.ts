@@ -4,7 +4,8 @@ import path from 'node:path';
 import { app, utilityProcess, type UtilityProcess, type WebContents } from 'electron';
 import type { SpeechStatus } from '../shared/ipc.js';
 import { SAMPLE_RATE, checkSamples, downloadModel, engineFor, isInstalled, modelBytes, recognizerConfig, sourcesFor, tidyTranscript, type SpeechEngine } from './asr-core.js';
-import { loadSettings } from './settings.js';
+import { cloudSpeechModel, transcribeInCloud } from './asr-cloud.js';
+import { loadApiKey, loadSettings } from './settings.js';
 
 /** Unload the model after this long without a recording. */
 const IDLE_MS = 3 * 60_000;
@@ -13,8 +14,9 @@ const LOAD_TIMEOUT_MS = 60_000;
 type Reply = { type: 'loaded' } | { type: 'result'; id: number; text: string } | { type: 'error'; id?: number; message: string };
 
 /**
- * Voice input (local speech-to-text). The model is downloaded only when the tutor asks for it, loaded
- * in a separate process on the first recording, and unloaded again when voice input goes unused.
+ * Voice input. On this computer (the default): the model is downloaded only when the tutor asks for it,
+ * loaded in a separate process on the first recording, and unloaded again when voice input goes unused.
+ * In the cloud, when the tutor chooses it: each recording goes to their AI service with their key.
  */
 export class SpeechService {
   private worker: UtilityProcess | null = null;
@@ -37,17 +39,31 @@ export class SpeechService {
     return engineFor(s.voiceLanguage, s.language);
   }
 
+  /** Cloud voice input can work: the AI service in Settings takes audio and has a key. */
+  private async cloudReady(): Promise<boolean> {
+    if (process.env.TUTORDESK_FAKE_AI === '1') return true;
+    const { api } = await loadSettings();
+    return !!cloudSpeechModel(api.gateway) && !!(await loadApiKey(api.gateway));
+  }
+
+  private async base(): Promise<Pick<SpeechStatus, 'engine' | 'cloud' | 'language' | 'total'>> {
+    const [s, e, cloud] = await Promise.all([loadSettings(), this.engine(), this.cloudReady()]);
+    return { engine: s.voiceEngine ?? 'local', cloud, language: e.language, total: modelBytes(e) };
+  }
+
   async status(): Promise<SpeechStatus> {
+    const b = await this.base();
+    if (b.engine === 'cloud') return { ...b, state: b.cloud ? 'ready' : 'absent', done: 0 };
     const e = await this.engine();
-    const total = modelBytes(e);
-    if (this.download?.engine === e) return { state: 'downloading', language: e.language, done: this.download.done, total };
-    return { state: (await isInstalled(e, this.dir(e))) ? 'ready' : 'absent', language: e.language, done: 0, total };
+    if (this.download?.engine === e) return { ...b, state: 'downloading', done: this.download.done };
+    return { ...b, state: (await isInstalled(e, this.dir(e))) ? 'ready' : 'absent', done: 0 };
   }
 
   /** Download and verify the model; progress goes to the window that asked. */
   async install(sender: WebContents): Promise<void> {
     if (this.download) throw new Error('A speech model is already downloading.');
     const e = await this.engine();
+    const b = await this.base();
     const abort = new AbortController();
     const china = (await loadSettings()).language === 'zh';
     let last = 0;
@@ -57,7 +73,7 @@ export class SpeechService {
         if (this.download) this.download.done = done;
         if (done - last < total / 200 && done !== total) return;
         last = done;
-        if (!sender.isDestroyed()) sender.send('speech:progress', { state: 'downloading', language: e.language, done, total } satisfies SpeechStatus);
+        if (!sender.isDestroyed()) sender.send('speech:progress', { ...b, state: 'downloading', done, total } satisfies SpeechStatus);
       },
     });
     this.download = { abort, done: 0, finished: finished.catch(() => {}), engine: e };
@@ -91,6 +107,13 @@ export class SpeechService {
   }
 
   private async run(audio: Float32Array): Promise<string> {
+    const s = await loadSettings();
+    if (s.voiceEngine === 'cloud') {
+      if (process.env.TUTORDESK_FAKE_AI === '1') return 'Dictated in the cloud.';
+      // Switched from this computer: the local model need not stay in memory.
+      this.stop();
+      return tidyTranscript(await transcribeInCloud(audio, { gateway: s.api.gateway, apiKey: await loadApiKey(s.api.gateway) }));
+    }
     const e = await this.engine();
     if (!(await isInstalled(e, this.dir(e)))) throw new Error('Download the speech model first (Settings → Voice input).');
     if (this.idle) clearTimeout(this.idle);

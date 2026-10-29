@@ -1,7 +1,7 @@
 import { Button, Dialog, Field, KeyValue, Panel, Select, StatusMark, TextInput } from '@tutordesk/ui';
 import { useEffect, useState } from 'react';
 import type { ModelTier } from '@tutordesk/providers/types';
-import { AGENTS, API_GATEWAYS, BEAMER_THEMES, UI_SCALES, type AgentMode, type AppSettings, type ApiGateway, type BeamerTheme, type CompileOutcome, type CompileSampleRequest, type VoiceLanguage, type WorkspaceChoice } from '../../../shared/ipc';
+import { AGENTS, API_GATEWAYS, BEAMER_THEMES, UI_SCALES, type AgentMode, type AppSettings, type ApiGateway, type BeamerTheme, type CompileOutcome, type CompileSampleRequest, type VoiceEngine, type VoiceLanguage, type WorkspaceChoice } from '../../../shared/ipc';
 import { useT, type TKey } from '../i18n';
 import { useAgentStatus } from '../thread/AgentControls';
 import { Progress, mb, useSpeechModel } from '../thread/Voice';
@@ -244,16 +244,20 @@ function Typesetting({ tex, theme, onTheme, onRecheck }: { tex: ReturnType<typeo
   );
 }
 
-function Voice({ update }: { update: (p: Partial<AppSettings>) => Promise<void> }) {
+function Voice({ settings, update }: { settings: AppSettings; update: (p: Partial<AppSettings>) => Promise<void> }) {
   const t = useT();
   const m = useSpeechModel();
   const s = m.status;
+  const { refresh } = m;
+  // Another AI service may or may not take audio.
+  useEffect(refresh, [settings.api.gateway, refresh]);
   if (!s) return null;
+  const cloud = s.engine === 'cloud';
   return (
     <Panel
       title={t('voice.title')}
       actions={
-        s.state === 'ready' ? (
+        cloud ? null : s.state === 'ready' ? (
           <Button variant="ghost" className="h-7 text-danger" onClick={() => void m.uninstall()}>
             {t('voice.remove')}
           </Button>
@@ -268,24 +272,50 @@ function Voice({ update }: { update: (p: Partial<AppSettings>) => Promise<void> 
         )
       }
     >
-      <div className="mb-3 w-96">
-        <Field label={t('voice.language')}>
-          <Select
-            data-testid="voice-language"
-            value={s.language}
-            disabled={s.state === 'downloading'}
-            onChange={async (e) => {
-              await update({ voiceLanguage: e.target.value as VoiceLanguage });
-              m.refresh();
-            }}
-          >
-            <option value="english">{t('voice.lang.english')}</option>
-            <option value="chinese">{t('voice.lang.chinese')}</option>
-          </Select>
-        </Field>
+      <div className="mb-3 flex gap-4">
+        <div className="w-56">
+          <Field label={t('voice.engine')}>
+            <Select
+              data-testid="voice-engine"
+              value={s.engine}
+              disabled={s.state === 'downloading'}
+              onChange={async (e) => {
+                await update({ voiceEngine: e.target.value as VoiceEngine });
+                m.refresh();
+              }}
+            >
+              <option value="local">{t('voice.engine.local')}</option>
+              <option value="cloud">{t('voice.engine.cloud')}</option>
+            </Select>
+          </Field>
+        </div>
+        {!cloud && (
+          <div className="w-96">
+            <Field label={t('voice.language')}>
+              <Select
+                data-testid="voice-language"
+                value={s.language}
+                disabled={s.state === 'downloading'}
+                onChange={async (e) => {
+                  await update({ voiceLanguage: e.target.value as VoiceLanguage });
+                  m.refresh();
+                }}
+              >
+                <option value="english">{t('voice.lang.english')}</option>
+                <option value="chinese">{t('voice.lang.chinese')}</option>
+              </Select>
+            </Field>
+          </div>
+        )}
       </div>
-      <p className="text-sm text-text-2">{fill(t(s.state === 'ready' ? 'voice.ready' : 'voice.absent'), { size: mb(s.total) })}</p>
-      <p className="mt-1 text-sm text-text-3">{t('voice.memory')}</p>
+      {cloud ? (
+        <p className="text-sm text-text-2">{t(s.cloud ? 'voice.cloud.ready' : 'voice.cloud.absent')}</p>
+      ) : (
+        <>
+          <p className="text-sm text-text-2">{fill(t(s.state === 'ready' ? 'voice.ready' : 'voice.absent'), { size: mb(s.total) })}</p>
+          <p className="mt-1 text-sm text-text-3">{t('voice.memory')}</p>
+        </>
+      )}
       {s.state === 'downloading' && <Progress done={s.done} total={s.total} />}
       {m.error && <p className="mt-2 text-sm text-danger">{m.error}</p>}
     </Panel>
@@ -440,7 +470,7 @@ export function SettingsPage({ settings, onSettings }: { settings: AppSettings; 
       <AiConnection settings={settings} update={update} ai={ai} recheck={() => refresh(true)} />
       {ai !== null && <span data-testid="claude-checked" hidden />}
       <Studio settings={settings} update={update} />
-      <Voice update={update} />
+      <Voice settings={settings} update={update} />
       <Typesetting tex={tex} theme={settings.beamerTheme} onTheme={(th) => void update({ beamerTheme: th })} onRecheck={() => refresh(true)} />
       {wsChoice && <WorkspaceDialog choice={wsChoice} onDone={onSettings} onClose={() => setWsChoice(null)} />}
     </div>

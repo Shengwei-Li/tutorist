@@ -251,6 +251,20 @@ export async function runSmoke(win: BrowserWindow, outDir: string): Promise<void
     await js(`[...document.querySelectorAll('[role=dialog] button')].find((b) => b.dataset.testid !== 'voice-install')?.click()`);
     return ok;
   });
+  if (fake) {
+    // The tutor skips the download and sends recordings to their AI service (scripted in fake mode).
+    await step('voice: use my AI service instead', async () => {
+      await click('voice-start');
+      await until(q('voice-use-cloud'), 5000);
+      await shot('22-voice-cloud-offer');
+      await click('voice-use-cloud');
+      const closed = await until(`!${q('voice-use-cloud')}`, 5000);
+      const status = await js<{ engine: string; state: string }>('window.tutordesk.speech.status()');
+      const text = await js<string>('window.tutordesk.speech.transcribe(new Float32Array(16000))');
+      await js(`window.tutordesk.settings.update({ voiceEngine: 'local' })`);
+      return closed && status.engine === 'cloud' && status.state === 'ready' && text === 'Dictated in the cloud.';
+    });
+  }
   // With TUTORDESK_SMOKE_ASR_MODELS (sense-voice/ and parakeet/ model folders, clips/zh.wav, clips/au.wav):
   // both real recognizers, end to end through the app.
   const asrModels = process.env.TUTORDESK_SMOKE_ASR_MODELS;
@@ -286,10 +300,16 @@ export async function runSmoke(win: BrowserWindow, outDir: string): Promise<void
     await click('nav-settings');
     const ok = await until(q('claude-checked'), 30_000);
     await shot('10-settings');
-    await js(`document.querySelector('[data-testid=voice-language]')?.scrollIntoView({ block: 'center' })`);
+    await until(q('voice-engine'), 5000);
+    await js(`${q('voice-engine')}.scrollIntoView({ block: 'center' })`);
     await wait(300);
     await shot('10b-settings-voice');
-    return ok;
+    // Switching to the cloud hides the model and its language, and says where recordings go.
+    await type('voice-engine', 'cloud');
+    const cloud = await until(`!${q('voice-language')}`, 5000);
+    await shot('10c-settings-voice-cloud');
+    await type('voice-engine', 'local');
+    return ok && cloud && (await until(q('voice-language'), 5000));
   });
   await step('dark mode', async () => {
     nativeTheme.themeSource = 'dark';

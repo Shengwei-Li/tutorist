@@ -43,6 +43,7 @@ export async function loadSettings(): Promise<AppSettings> {
   if (AGENTS.includes(process.env.TUTORDESK_AGENT as AppSettings['agent'])) merged.agent = process.env.TUTORDESK_AGENT as AppSettings['agent'];
   if (!API_GATEWAYS.includes(merged.api.gateway)) merged.api.gateway = 'openrouter';
   if (merged.voiceLanguage !== undefined && merged.voiceLanguage !== 'english' && merged.voiceLanguage !== 'chinese') delete merged.voiceLanguage;
+  if (merged.voiceEngine !== undefined && merged.voiceEngine !== 'local' && merged.voiceEngine !== 'cloud') delete merged.voiceEngine;
   if (merged.uiScale !== undefined && !UI_SCALES.includes(merged.uiScale as (typeof UI_SCALES)[number])) delete merged.uiScale;
   if (merged.pet !== undefined && typeof merged.pet !== 'boolean') delete merged.pet;
   cache = merged;
@@ -51,6 +52,7 @@ export async function loadSettings(): Promise<AppSettings> {
 
 export async function saveSettings(patch: Partial<AppSettings>): Promise<AppSettings> {
   const next = { ...(await loadSettings()), ...patch };
+  if (next.voiceEngine !== undefined && next.voiceEngine !== 'local' && next.voiceEngine !== 'cloud') delete next.voiceEngine;
   if (next.uiScale !== undefined && !UI_SCALES.includes(next.uiScale as (typeof UI_SCALES)[number])) delete next.uiScale;
   cache = next;
   await writeJson(file(), next);

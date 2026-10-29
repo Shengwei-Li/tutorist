@@ -34,6 +34,8 @@ export interface AppSettings {
   tutorName: string;
   /** Which speech voice input expects; unset follows the interface language. */
   voiceLanguage?: VoiceLanguage;
+  /** Where voice input turns speech into text; unset is this computer. */
+  voiceEngine?: VoiceEngine;
   /** Interface zoom, one of UI_SCALES; unset is 1. */
   uiScale?: number;
   /** The pixel sprite in the sidebar; unset is shown. */
@@ -43,6 +45,7 @@ export interface AppSettings {
 export const UI_SCALES = [0.9, 1, 1.1, 1.25] as const;
 
 export type VoiceLanguage = 'english' | 'chinese';
+export type VoiceEngine = 'local' | 'cloud';
 
 export type StudentSummary = { ok: true; profile: StudentProfile } | { ok: false; id: string; issues: string[] };
 
@@ -198,12 +201,16 @@ export interface WorkspaceChoice {
   inside: boolean;
 }
 
-/** The local speech model for voice input. */
+/** Voice input: the local speech model, or the tutor's AI service. */
 export interface SpeechStatus {
+  engine: VoiceEngine;
+  /** The AI service in Settings takes audio and has a key: cloud voice input can work. */
+  cloud: boolean;
+  /** Local: the model's state. Cloud: ready, or absent when the service cannot take audio or has no key. */
   state: 'absent' | 'downloading' | 'ready';
   /** English (Parakeet) or Chinese and mixed speech (SenseVoice): one model each. */
   language: VoiceLanguage;
-  /** Bytes downloaded so far, and the model's size. */
+  /** Bytes downloaded so far, and the local model's size. */
   done: number;
   total: number;
 }
