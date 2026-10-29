@@ -1,10 +1,12 @@
-import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   LockBusyError,
   PathEscapeError,
+  StudentGit,
+  SubmissionMeta,
   WorkspaceService,
   ieltsOverall,
   isValidScore,
@@ -76,6 +78,35 @@ describe('lock', () => {
   });
 });
 
+describe.skipIf(!(await StudentGit.isAvailable()))('StudentGit', () => {
+  it('records every save when several arrive at the same moment', async () => {
+    const git = new StudentGit(tmp);
+    await git.init();
+    const docs = ['handout', 'worksheet', 'script', 'deck', 'plan', 'notes'];
+    await Promise.all(
+      docs.map(async (d) => {
+        await writeFile(path.join(tmp, `${d}.json`), '{}');
+        return git.commitAll(`Save ${d}`);
+      }),
+    );
+    const log = await git.log(20);
+    // Every file is committed and no save failed; saves that landed together may share a commit.
+    expect(log.length).toBeGreaterThan(0);
+    expect(await new StudentGit(tmp).commitAll('nothing left')).toBeNull();
+  });
+
+  it('commits what it staged even when a file appears right after', async () => {
+    const git = new StudentGit(tmp);
+    await git.init();
+    await writeFile(path.join(tmp, 'a.json'), '{}');
+    // Written while the commit is under way, as an exported PDF can be.
+    const [hash] = await Promise.all([git.commitAll('Save a'), writeFile(path.join(tmp, 'b.pdf'), 'x')]);
+    expect(hash).toMatch(/^[0-9a-f]+$/);
+    await git.commitAll('Save b');
+    expect(await git.commitAll('nothing left')).toBeNull();
+  });
+});
+
 describe('WorkspaceService', () => {
   it('creates a student with all files, context and git history', async () => {
     const ws = await WorkspaceService.init(path.join(tmp, 'ws'));
@@ -100,6 +131,15 @@ describe('WorkspaceService', () => {
     const ws = await WorkspaceService.init(path.join(tmp, 'ws'));
     await expect(ws.createStudent({ name: 'X', exam: 'ielts-academic', targetOverall: 6.3 })).rejects.toThrow();
     await expect(ws.createStudent({ name: 'Y', exam: 'pte-academic', targetOverall: 95 })).rejects.toThrow();
+    // A refused student leaves no folder behind.
+    expect(await readdir(path.join(ws.root, 'students')).catch(() => [])).toEqual([]);
+  });
+
+  it('gives two students of the same name made at the same moment their own folders', async () => {
+    const ws = await WorkspaceService.init(path.join(tmp, 'ws'));
+    const made = await Promise.all([1, 2, 3].map(() => ws.createStudent({ name: 'Li Wei', exam: 'ielts-academic', targetOverall: 6.5 })));
+    expect(new Set(made.map((p) => p.id)).size).toBe(3);
+    expect((await ws.listStudents()).filter((s) => s.ok)).toHaveLength(3);
   });
 
   it('reports hand-edited invalid profiles instead of crashing', async () => {
@@ -133,6 +173,19 @@ describe('WorkspaceService', () => {
   it('refuses student ids that escape the students folder', async () => {
     const ws = await WorkspaceService.init(path.join(tmp, 'ws'));
     await expect(ws.studentDir('../../etc')).rejects.toBeInstanceOf(PathEscapeError);
+    // Every id names exactly one folder: not the students folder itself, not a path inside a student.
+    for (const id of ['', '.', '..', 'a/b', 'a\\b']) await expect(ws.studentDir(id)).rejects.toBeInstanceOf(PathEscapeError);
+    const s = await ws.createStudent({ name: 'Mina Park', exam: 'ielts-academic', targetOverall: 6.5 });
+    for (const id of ['.', '..', '../lessons']) {
+      await expect(ws.lessonDir(s.id, id)).rejects.toBeInstanceOf(PathEscapeError);
+      await expect(ws.submissionDir(s.id, id)).rejects.toBeInstanceOf(PathEscapeError);
+    }
+  });
+
+  it('keeps an essay photo to a file name in its own folder', () => {
+    const meta = { schemaVersion: 1, id: '2026-10-29-task2', kind: 'writing-task2', source: 'image', original: 'original.jpg', createdAt: '2026-10-29T09:00:00.000Z' };
+    expect(SubmissionMeta.safeParse(meta).success).toBe(true);
+    for (const original of ['../../profile.png', 'C:/Users/x/a.png', 'original.png/../x.png']) expect(SubmissionMeta.safeParse({ ...meta, original }).success).toBe(false);
   });
 });
 

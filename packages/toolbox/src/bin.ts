@@ -20,11 +20,14 @@ async function main() {
       by: { type: 'string' },
       'require-plan-approval': { type: 'string', default: 'true' },
       'tex-bin': { type: 'string' },
+      tectonic: { type: 'string' },
+      'tectonic-cache': { type: 'string' },
+      'tex-engine': { type: 'string' },
       'write-kit': { type: 'boolean', default: false },
     },
   });
   if (!values.workspace) {
-    process.stderr.write('usage: tutordesk-mcp --workspace <root> [--write-kit] [--by <harness>] [--require-plan-approval true|false] [--tex-bin <dir>]\n');
+    process.stderr.write('usage: tutordesk-mcp --workspace <root> [--write-kit] [--by <harness>] [--require-plan-approval true|false] [--tex-bin <dir>] [--tectonic <binary> --tectonic-cache <dir>] [--tex-engine bundled]\n');
     process.exit(2);
   }
   const root = path.resolve(values.workspace);
@@ -40,7 +43,12 @@ async function main() {
   const studio = cfg.studio ?? { name: 'Private Tutoring' };
   const box = new Toolbox({
     ws: new WorkspaceService(root),
-    tex: new TexEngine({ binDir: values['tex-bin'], maxConcurrent: 1 }),
+    tex: new TexEngine({
+      binDir: values['tex-bin'],
+      bundled: values.tectonic && values['tectonic-cache'] ? { binary: values.tectonic, cacheDir: values['tectonic-cache'] } : undefined,
+      prefer: values['tex-engine'] === 'bundled' ? 'bundled' : 'auto',
+      maxConcurrent: 1,
+    }),
     templateDir: path.join(root, 'templates', 'tex'),
     studio,
     tutorName: cfg.tutorName || studio.name,

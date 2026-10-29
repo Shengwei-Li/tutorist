@@ -3,7 +3,7 @@ import { copyFile, mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFi
 import os from 'node:os';
 import path from 'node:path';
 import { killTree, resolveInside, type ResolvedCommand } from '@tutordesk/core';
-import { detectSystemTex, type DetectOptions } from './detect.js';
+import { detectTex, type DetectOptions } from './detect.js';
 import { parseTexLog } from './log-parser.js';
 import type { CompileJob, CompileResult, EngineInfo } from './types.js';
 
@@ -72,7 +72,7 @@ export class TexEngine {
   ) {}
 
   detect(refresh = false): Promise<EngineInfo | null> {
-    if (refresh || !this.info) this.info = detectSystemTex(this.opts);
+    if (refresh || !this.info) this.info = detectTex(this.opts);
     return this.info;
   }
 
@@ -113,7 +113,11 @@ export class TexEngine {
 
     try {
       await stageTemplates(job.templateDir, buildDir);
-      await writeFile(path.join(buildDir, `${jobname}.tex`), job.mainTex, 'utf8');
+      // Tectonic takes no pre-TeX code on its command line: a small wrapper sets it, then reads the document.
+      const wrap = info.kind === 'tectonic' && !!job.pretex;
+      const bodyFile = wrap ? `${jobname}-body.tex` : `${jobname}.tex`;
+      await writeFile(path.join(buildDir, bodyFile), job.mainTex, 'utf8');
+      if (wrap) await writeFile(path.join(buildDir, `${jobname}.tex`), `${job.pretex}\\input{${bodyFile}}\n`, 'utf8');
       for (const [rel, content] of Object.entries(job.files ?? {})) {
         const target = await resolveInside(buildDir, rel);
         await mkdir(path.dirname(target), { recursive: true });
@@ -140,7 +144,16 @@ export class TexEngine {
       const deadline = Date.now() + timeoutMs;
       let run: Awaited<ReturnType<typeof runProcess>> = { code: 0, output: '', timedOut: false, aborted: false };
       let previousAux = await readFile(auxFile, 'utf8').catch(() => '');
-      for (let pass = 0; pass < 4; pass++) {
+      if (info.kind === 'tectonic') {
+        // Offline from the bundled cache, no shell escape; Tectonic reruns the passes itself.
+        run = await runProcess(info.xelatex, ['-X', 'compile', `${jobname}.tex`, '--untrusted', '--only-cached', '--keep-logs', '--synctex'], {
+          cwd: buildDir,
+          env: { ...env, TECTONIC_CACHE_DIR: info.cacheDir },
+          timeoutMs,
+          signal: job.signal,
+        });
+      }
+      for (let pass = 0; pass < 4 && info.kind !== 'tectonic'; pass++) {
         run = await runProcess(info.xelatex, [...xeArgs, `-jobname=${jobname}`, src], { cwd: buildDir, env, timeoutMs: Math.max(1000, deadline - Date.now()), signal: job.signal });
         if (run.code !== 0 || run.timedOut || run.aborted) break;
         const aux = await readFile(auxFile, 'utf8').catch(() => '');

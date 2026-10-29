@@ -26,6 +26,16 @@ pnpm install
 
 Requirements: Node 24+, pnpm 11, TeX Live (or MiKTeX) with `xelatex` and `latexmk`. The desktop package's postinstall downloads the Electron binary.
 
+## Bundled TeX (Tectonic)
+
+Tutors need no TeX installation: the app ships Tectonic and an offline cache of every package and font the templates use. Fetch them once per platform (they are git-ignored):
+
+```bash
+pnpm --filter @tutordesk/desktop tectonic
+```
+
+This downloads the pinned Tectonic, checks its SHA-256, compiles every sample to fill the cache, then compiles them again offline to prove the cache is complete (a few minutes; output in `apps/desktop/resources/tectonic/`). At run time a complete system TeX is preferred, otherwise the bundled Tectonic; `TUTORDESK_TEX_ENGINE=bundled` forces the bundled one.
+
 ## Run
 
 ```bash

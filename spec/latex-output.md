@@ -50,6 +50,15 @@ AI ──► 产出物 JSON（Zod schema，每个节点有稳定 id）
 | 兜底 2 | 云端编译（需要用户主动开启） | 编译完立即删除，可选数据区域（澳洲 / 美国）；默认关闭 |
 
 - **所有模板只用 XeLaTeX**（Tectonic 不支持 LuaLaTeX），保证不同机器上的版式完全一致。
+- **已实现**（2026-10-29）：
+  - **版本:** Tectonic 0.17.0，按平台固定发布包的 SHA-256。bundle 用 Tectonic 默认的 `default_bundle_v33`（TeX Live 2022），固定摘要为 `6ffe0558…`。
+  - **构建:** `pnpm --filter @tutordesk/desktop tectonic` 下载、核对哈希，然后联网编译全部 10 份样例（讲义、练习卷、讲稿各两版，幻灯片四个主题）生成缓存，再离线编译一遍，确认缓存完整。结果放在 `apps/desktop/resources/tectonic/`，不进 git。
+  - **体积（Windows）:** 程序 51.5 MB，缓存 47 MB（格式文件 24 MB，宏包和数据 18 MB）；LZMA 压缩后分别为 13.5 MB 和 6.7 MB，安装包约增加 20 MB。
+  - **运行:** `--only-cached --untrusted`，从缓存只读编译，完全不联网。缓存放在只读目录也能用，已实测。
+  - **选择顺序:** 本机 TeX 宏包齐全就用本机，否则用内置 Tectonic，都没有时用本机已有的 TeX 并提示缺哪些宏包。设置 `TUTORDESK_TEX_ENGINE=bundled` 只用内置引擎（测试用）。agent 的 MCP 服务由应用传入同样的参数，不从工作区读取。
+  - **教师版:** Tectonic 不接受命令行上的 pre-TeX，所以写一个小包装文件，先定义 `\TDmode` 再 `\input` 正文；报错行号仍对应正文。
+  - **兼容:** 2022 版内核没有 `\tl_put_right:Ne` 这类 e 型变体，`tutordesk.cls` 用 `\cs_generate_variant:Nn` 补上；新内核已有这些变体，补了也没有影响。
+  - **与本机 TeX 的差异:** Tectonic 的 `--untrusted` 只禁止 shell escape，不像 `openin_any=p` 那样禁止读取构建目录以外的文件。正文由渲染器生成并转义，AI 和学生的文字进不了 `\input`；模板只有老师批准，或者在「完全放权」模式下才能改，而这个模式下 agent 本来就能读文件。所以风险可以接受，但不要让未经转义的 TeX 进入编译。
 - 不使用浏览器端的 WASM TeX：这类方案对 fontspec 和 beamer 的支持还不成熟，速度也慢 2–5 倍。
 - 安装包的 Tectonic 二进制需要签名：macOS 用 Developer ID + hardened runtime + 公证，Windows 用代码签名，避免被 SmartScreen 或 Defender 拦截。
 
@@ -158,7 +167,7 @@ interface LayoutEditor {
 **原型里已知要修的问题**
 - 听力填空的空格长度不一致。按照附录 C.3，所有空格必须等长，避免泄露答案长度。`\gap` 改成统一宽度，只允许按版式整体调整。
 - 中文字体 Fandol 的许可证是 GPL 加字体例外，不是 OFL。分发版如果要支持中文注释，改用思源宋体或思源黑体的子集（OFL）。
-- 还没有在 Tectonic 上实测，M0 要补上。
+- Tectonic 实测（2026-10-29）：全部样例通过，其中包括中文讲义、教师版和四个 Beamer 主题；冒烟测试只用内置引擎时 26 步全过。
 
 ## D.8 Beamer 主题
 

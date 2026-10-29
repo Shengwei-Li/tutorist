@@ -1,14 +1,23 @@
 import type { ResolvedCommand } from '@tutordesk/core';
 
-/** Where the TeX binaries come from (appendix D.3). M0 implements the system kinds; Tectonic comes in M4. */
+/** Where the TeX binaries come from (appendix D.3): the tutor's own TeX, or the Tectonic built into the app. */
 export type EngineKind = 'system-texlive' | 'system-miktex' | 'tectonic';
+
+/** The Tectonic that ships with the app, and its offline cache of the packages and fonts the templates use. */
+export interface BundledTectonic {
+  binary: string;
+  cacheDir: string;
+}
 
 export interface EngineInfo {
   kind: EngineKind;
   binDir: string;
-  /** e.g. "TeX Live 2026" or "MiKTeX 24.1". */
+  /** e.g. "TeX Live 2026", "MiKTeX 24.1" or "Tectonic 0.17.0". */
   version: string;
+  /** xelatex, or the tectonic binary when kind is 'tectonic'. */
   xelatex: ResolvedCommand;
+  /** Tectonic only: the offline cache it compiles from. */
+  cacheDir?: string;
   latexmk?: ResolvedCommand;
   kpsewhich?: ResolvedCommand;
   /** Required .sty/.cls files that kpsewhich could not find. */

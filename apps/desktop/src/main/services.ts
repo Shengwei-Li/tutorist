@@ -24,7 +24,9 @@ import {
   type WorkspaceChoice,
 } from '../shared/ipc.js';
 import { loadApiKey, loadSettings, saveSettings, storeApiKey } from './settings.js';
+import { SettingsPatch } from './settings-patch.js';
 import { SpeechService } from './asr.js';
+import { texOptions } from './tex-bundle.js';
 import { ThreadService } from './threads.js';
 
 /** Bundled workspace template: repo folder in development, resources folder when packaged. */
@@ -33,15 +35,36 @@ function templateRoot(): string {
 }
 
 let workspace: WorkspaceService | undefined;
+/** The workspace being set up: the window asks for several things at once on start, and it is set up once. */
+let opening: { root: string; ready: Promise<WorkspaceService> } | undefined;
 async function ws(): Promise<WorkspaceService> {
   const { workspaceRoot } = await loadSettings();
-  if (!workspace || workspace.root !== workspaceRoot) {
-    workspace = await WorkspaceService.init(workspaceRoot, templateRoot());
-    // Agents read AGENTS.md and skills; the tutordesk MCP server reads toolbox.json (appendix E.4.3, E.7).
-    await writeAgentKit(workspace.root);
-    await writeToolboxConfig(workspace.root);
+  if (workspace?.root === workspaceRoot) return workspace;
+  if (opening?.root !== workspaceRoot) {
+    const ready = (async () => {
+      const w = await WorkspaceService.init(workspaceRoot, templateRoot());
+      // Agents read AGENTS.md and skills; the tutordesk MCP server reads toolbox.json (appendix E.4.3, E.7).
+      await writeAgentKit(w.root);
+      await writeToolboxConfig(w.root);
+      return w;
+    })();
+    opening = { root: workspaceRoot, ready };
+    ready.then(
+      (w) => {
+        if (opening?.ready === ready) [workspace, opening] = [w, undefined];
+      },
+      () => {
+        if (opening?.ready === ready) opening = undefined;
+      },
+    );
   }
-  return workspace;
+  return opening.ready;
+}
+
+/** `inner` is `outer` or inside it; Windows paths compare without case. */
+function within(outer: string, inner: string): boolean {
+  const rel = path.relative(outer, inner);
+  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
 }
 
 async function writeToolboxConfig(root: string): Promise<void> {
@@ -74,8 +97,7 @@ async function provider(): Promise<AgentProvider> {
 
 let tex: TexEngine | undefined;
 async function texEngine(): Promise<TexEngine> {
-  const { texBinDir } = await loadSettings();
-  tex ??= new TexEngine({ binDir: texBinDir });
+  tex ??= new TexEngine(await texOptions());
   return tex;
 }
 
@@ -206,7 +228,8 @@ export function registerIpc(): void {
   h('threads:configure', (_e, id: string, patch: Parameters<ThreadService['configure']>[1]) => threads.configure(id, patch));
   h('threads:attach', (_e, studentId: string) => threads.attach(studentId));
   h('agents:status', () => threads.status());
-  h('settings:update', async (_e, patch: Parameters<typeof saveSettings>[0]) => {
+  h('settings:update', async (_e, raw: unknown) => {
+    const patch = SettingsPatch.parse(raw);
     tex = undefined;
     const saved = await saveSettings(patch);
     if (workspace && workspace.root === saved.workspaceRoot) await writeToolboxConfig(workspace.root);
@@ -220,13 +243,13 @@ export function registerIpc(): void {
     const current = path.resolve((await loadSettings()).workspaceRoot);
     const names = await readdir(dir).catch(() => [] as string[]);
     const students = await readdir(path.join(current, 'students')).catch(() => [] as string[]);
-    return { path: dir, same: dir === current, isWorkspace: names.includes('workspace.json'), empty: names.length === 0, currentStudents: students.length, inside: dir.startsWith(current + path.sep) };
+    return { path: dir, same: dir === current, isWorkspace: names.includes('workspace.json'), empty: names.length === 0, currentStudents: students.length, inside: dir !== current && within(current, dir) };
   });
   h('settings:switchWorkspace', async (_e, dir: string, move: boolean) => {
     const target = path.resolve(dir);
     const current = path.resolve((await loadSettings()).workspaceRoot);
     if (target === current) return loadSettings();
-    if (target.startsWith(current + path.sep)) throw new Error('The new folder cannot be inside the current one.');
+    if (within(current, target)) throw new Error('The new folder cannot be inside the current one.');
     // Agents run in the workspace; stop them before it changes under them.
     await threads.closeAll();
     if (move) {

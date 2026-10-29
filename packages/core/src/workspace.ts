@@ -4,7 +4,7 @@ import path from 'node:path';
 import { appendJsonl, readJson, readJsonl, writeFileAtomic, writeJson, type Parsed } from './fsio.js';
 import { StudentGit } from './git.js';
 import { withDirLock } from './lock.js';
-import { resolveInside } from './paths.js';
+import { PathEscapeError, resolveInside } from './paths.js';
 import { renderAgentContext, renderProfileMd } from './render-md.js';
 import {
   ErrorInstance,
@@ -26,6 +26,12 @@ export type StudentEntry =
 
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+/** A student, lesson or submission id names one folder: never a path, `.` or `..`. */
+function oneFolder(id: string, what: string): string {
+  if (typeof id !== 'string' || !id || id === '.' || id === '..' || /[\\/]/.test(id)) throw new PathEscapeError(String(id).slice(0, 80), `${what} folders`);
+  return id;
 }
 
 function slugify(name: string): string {
@@ -94,7 +100,7 @@ export class WorkspaceService {
   }
 
   async studentDir(id: string): Promise<string> {
-    return resolveInside(this.studentsDir, id);
+    return resolveInside(this.studentsDir, oneFolder(id, 'student'));
   }
 
   async listStudents(): Promise<StudentEntry[]> {
@@ -114,17 +120,25 @@ export class WorkspaceService {
     return out;
   }
 
-  private async uniqueId(base: string): Promise<string> {
-    let id = base;
-    for (let n = 2; await exists(path.join(this.studentsDir, id)); n++) id = `${base}-${n}`;
-    return id;
+  /** Claim a free folder name: creating the folder is the claim, so two students made at once never share one. */
+  private async reserveId(base: string): Promise<string> {
+    await mkdir(this.studentsDir, { recursive: true });
+    for (let n = 1; ; n++) {
+      const id = n === 1 ? base : `${base}-${n}`;
+      try {
+        await mkdir(path.join(this.studentsDir, id));
+        return id;
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
+      }
+    }
   }
 
   async createStudent(input: NewStudentInput): Promise<StudentProfile> {
     const data = NewStudentInput.parse(input);
-    const id = await this.uniqueId(`${slugify(data.name)}-${EXAM_SHORT[data.exam]}`);
+    const id = await this.reserveId(`${slugify(data.name)}-${EXAM_SHORT[data.exam]}`);
     const ts = nowIso();
-    const profile = StudentProfile.parse({
+    const parsed = StudentProfile.safeParse({
       schemaVersion: 1,
       id,
       name: data.name,
@@ -139,8 +153,13 @@ export class WorkspaceService {
       createdAt: ts,
       updatedAt: ts,
     });
-
     const dir = path.join(this.studentsDir, id);
+    if (!parsed.success) {
+      await rm(dir, { recursive: true, force: true });
+      throw parsed.error;
+    }
+    const profile = parsed.data;
+
     for (const d of STUDENT_DIRS) await mkdir(path.join(dir, d), { recursive: true });
     await this.writeProfileFiles(dir, profile);
     await writeFile(path.join(dir, 'notes.md'), `# Notes on ${profile.name}\n\n`, 'utf8');
@@ -272,7 +291,7 @@ export class WorkspaceService {
   }
 
   async lessonDir(id: string, lessonId: string): Promise<string> {
-    return resolveInside(await this.studentDir(id), path.join('lessons', lessonId));
+    return resolveInside(await this.studentDir(id), path.join('lessons', oneFolder(lessonId, 'lesson')));
   }
 
   async readLesson(id: string, lessonId: string): Promise<LessonMeta> {
@@ -358,7 +377,7 @@ export class WorkspaceService {
   }
 
   async submissionDir(id: string, subId: string): Promise<string> {
-    return resolveInside(await this.studentDir(id), path.join('submissions', subId));
+    return resolveInside(await this.studentDir(id), path.join('submissions', oneFolder(subId, 'submission')));
   }
 
   async listSubmissions(id: string): Promise<SubmissionMeta[]> {

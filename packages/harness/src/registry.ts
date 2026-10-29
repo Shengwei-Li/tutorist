@@ -64,10 +64,23 @@ export function tutordeskMcpLaunch(o: {
   requirePlanApproval?: boolean;
   /** TeX binaries folder. Passed by the app only, never read from the workspace, which agents can write. */
   texBin?: string;
+  /** The app's bundled Tectonic and its offline cache (same rule: from the app, never the workspace). */
+  tectonic?: { binary: string; cacheDir: string };
+  preferBundled?: boolean;
 }): McpLaunch {
   return {
     command: o.runtime ?? process.execPath,
-    args: [o.serverScript, '--workspace', o.workspace, '--by', o.by, ...(o.requirePlanApproval === false ? ['--require-plan-approval', 'false'] : []), ...(o.texBin ? ['--tex-bin', o.texBin] : [])],
+    args: [
+      o.serverScript,
+      '--workspace',
+      o.workspace,
+      '--by',
+      o.by,
+      ...(o.requirePlanApproval === false ? ['--require-plan-approval', 'false'] : []),
+      ...(o.texBin ? ['--tex-bin', o.texBin] : []),
+      ...(o.tectonic ? ['--tectonic', o.tectonic.binary, '--tectonic-cache', o.tectonic.cacheDir] : []),
+      ...(o.preferBundled ? ['--tex-engine', 'bundled'] : []),
+    ],
     env: o.electron ? { ELECTRON_RUN_AS_NODE: '1' } : {},
   };
 }

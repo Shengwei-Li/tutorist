@@ -180,7 +180,7 @@ function Typesetting({ tex, theme, onTheme, onRecheck }: { tex: ReturnType<typeo
       <p className="mb-3 text-sm text-text-2">{t('settings.typesetting.desc')}</p>
       <div className="mb-3">
         <StatusMark status={tex === null ? 'progress' : tex.found && !tex.missingFiles.length ? 'done' : 'error'}>
-          {tex === null ? t('status.checking') : tex.found ? `${tex.version} · ${tex.hasLatexmk ? 'latexmk' : 'xelatex'}` : t('status.notInstalled')}
+          {tex === null ? t('status.checking') : tex.found ? `${tex.version} · ${tex.kind === 'tectonic' ? t('settings.texBundled') : 'xelatex'}` : t('status.notInstalled')}
         </StatusMark>
         {tex?.missingFiles.length ? (
           <p className="mt-1 text-sm text-danger">

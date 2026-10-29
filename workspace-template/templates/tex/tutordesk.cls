@@ -242,6 +242,13 @@
 %  Answer collection (shared by every exercise type)
 % ---------------------------------------------------------------------
 \ExplSyntaxOn
+% The bundled Tectonic ships an older kernel (2022) without these e-type variants; newer ones
+% already have them, and generating a variant that exists does nothing.
+\cs_generate_variant:Nn \tl_set:Nn { Ne }
+\cs_generate_variant:Nn \tl_gset:Nn { Ne }
+\cs_generate_variant:Nn \tl_put_right:Nn { Ne }
+\cs_generate_variant:Nn \tl_gput_right:Nn { Ne }
+\cs_generate_variant:Nn \prop_gput:Nnn { Nne }
 \tl_new:N \g_td_answers_tl
 \tl_new:N \g__td_pending_head_tl
 \bool_new:N \g__td_keyopen_bool

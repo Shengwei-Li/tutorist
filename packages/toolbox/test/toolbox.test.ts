@@ -145,6 +145,16 @@ describe('proposals', () => {
     await expect(applyProposal(ws, store, p.id)).rejects.toThrow(/already applied/);
   });
 
+  it('applies a proposal once when it is confirmed twice at the same moment', async () => {
+    await box.call('propose_lessons', { studentId, lessons: [{ date: '2026-11-10' }, { date: '2026-11-12' }] });
+    const store = new ProposalStore(ws.root);
+    const [p] = await store.list({ studentId, status: 'pending' });
+    const before = (await ws.listLessons(studentId)).length;
+    const results = await Promise.allSettled([applyProposal(ws, store, p!.id), applyProposal(ws, store, p!.id)]);
+    expect(results.map((r) => r.status).sort()).toEqual(['fulfilled', 'rejected']);
+    expect((await ws.listLessons(studentId)).length).toBe(before + 2);
+  });
+
   it('checks the whole profile before proposing, and keeps only the latest proposal', async () => {
     const bad = await box.call('propose_profile_update', { studentId, changes: { goal: { targetOverall: 6.3 } } });
     expect(bad).toMatchObject({ isError: true, text: expect.stringMatching(/targetOverall/) });

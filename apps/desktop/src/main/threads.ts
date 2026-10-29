@@ -20,6 +20,7 @@ import type { TexEngine } from '@tutordesk/tex';
 import { Toolbox, apiSystemPrompt } from '@tutordesk/toolbox';
 import type { AgentId, AgentMode, AgentStatus, ThreadEvent, ThreadSubject, ThreadView } from '../shared/ipc.js';
 import { loadApiKey, loadSettings } from './settings.js';
+import { texOptions } from './tex-bundle.js';
 
 /** Compile-time check that the renderer's mirror matches the harness event type. */
 const _sameShape: (e: HarnessEvent) => ThreadEvent = (e) => e;
@@ -162,7 +163,8 @@ export class ThreadService {
       }
     } else {
       // Electron's own binary runs the MCP server as plain Node, so tutors need no Node install.
-      const mcp = tutordeskMcpLaunch({ serverScript: mcpServerScript(), workspace: w.root, by: t.harness, runtime: process.execPath, electron: true, texBin: s.texBinDir || undefined });
+      const tex = await texOptions();
+      const mcp = tutordeskMcpLaunch({ serverScript: mcpServerScript(), workspace: w.root, by: t.harness, runtime: process.execPath, electron: true, texBin: tex.binDir || undefined, tectonic: tex.bundled, preferBundled: tex.prefer === 'bundled' });
       session = createSession(t.harness, { ...base, mcp });
     }
     try {

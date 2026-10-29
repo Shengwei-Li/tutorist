@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { TexEngine, detectSystemTex, escapeLatex, parseTexLog } from '../src/index.js';
+import { TexEngine, detectSystemTex, detectTex, escapeLatex, parseTexLog } from '../src/index.js';
 
 const TEMPLATES = fileURLToPath(new URL('../../../workspace-template/templates/tex/', import.meta.url));
 const SAMPLES = path.join(TEMPLATES, 'samples');
@@ -131,5 +131,68 @@ describe.skipIf(!tex)('TexEngine with local TeX', () => {
     const [a, b] = await Promise.all([first, second]);
     expect(a.ok).toBe(false);
     expect(b.ok).toBe(true);
+  }, 60_000);
+});
+
+describe('choosing the engine', () => {
+  it('uses the bundled Tectonic only when asked, or when it exists', async () => {
+    const missing = { binary: path.join(os.tmpdir(), 'no-such-tectonic.exe'), cacheDir: os.tmpdir() };
+    expect(await detectTex({ prefer: 'bundled', bundled: missing })).toBeNull();
+    expect(await detectTex({ prefer: 'bundled' })).toBeNull();
+    // A broken bundle never hides a working system TeX.
+    const info = await detectTex({ bundled: missing, skipPackageCheck: true });
+    expect(info?.kind ?? null).toBe(tex?.kind ?? null);
+  });
+});
+
+// The Tectonic fetched by `pnpm --filter @tutordesk/desktop tectonic` (apps/desktop/resources/tectonic).
+const BUNDLE = fileURLToPath(new URL('../../../apps/desktop/resources/tectonic/', import.meta.url));
+const bundled = {
+  binary: path.join(BUNDLE, 'bin', `${process.platform}-${process.arch}`, process.platform === 'win32' ? 'tectonic.exe' : 'tectonic'),
+  cacheDir: path.join(BUNDLE, 'cache'),
+};
+
+describe.skipIf(!existsSync(bundled.binary))('TexEngine with the bundled Tectonic, offline', () => {
+  const engine = new TexEngine({ bundled, prefer: 'bundled', maxConcurrent: 2 });
+
+  it('reports itself as Tectonic', async () => {
+    expect(await engine.detect()).toMatchObject({ kind: 'tectonic', version: expect.stringMatching(/^Tectonic \d/) });
+  });
+
+  it('compiles the Chinese handout in student and teacher editions', async () => {
+    const mainTex = await readFile(path.join(SAMPLES, 'handout-peel.tex'), 'utf8');
+    const student = await engine.compile({ mainTex, templateDir: TEMPLATES });
+    expect(student.errors.filter((e) => e.severity === 'error'), student.log.slice(-1500)).toEqual([]);
+    expect(student.engine.kind).toBe('tectonic');
+    expect(student.pdf!.subarray(0, 5).toString()).toBe('%PDF-');
+    const teacher = await engine.compile({ mainTex, templateDir: TEMPLATES, pretex: '\\def\\TDmode{teacher}' });
+    expect(teacher.ok).toBe(true);
+    expect(teacher.pdf!.length).toBeGreaterThan(student.pdf!.length);
+  }, 120_000);
+
+  it('compiles the deck', async () => {
+    const r = await engine.compile({
+      mainTex: await readFile(path.join(SAMPLES, 'deck.tex'), 'utf8'),
+      files: { 'lesson-peel.tex': await readFile(path.join(SAMPLES, 'lesson-peel.tex'), 'utf8') },
+      templateDir: TEMPLATES,
+    });
+    expect(r.ok, r.log.slice(-1500)).toBe(true);
+  }, 120_000);
+
+  it('reports errors with line and node id, also through the teacher-edition wrapper', async () => {
+    const mainTex = ['\\documentclass{article}', '\\begin{document}', 'Fine line.', '\\notamacro{x}', '\\end{document}'].join('\n');
+    for (const pretex of [undefined, '\\def\\TDmode{teacher}']) {
+      const r = await engine.compile({ mainTex, templateDir: TEMPLATES, pretex, lineMap: [{ fromLine: 3, toLine: 4, nodeId: 'para-1' }] });
+      expect(r.ok).toBe(false);
+      expect(r.errors[0]).toMatchObject({ severity: 'error', line: 4, nodeId: 'para-1' });
+    }
+  }, 60_000);
+
+  it('blocks shell escape', async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'tutordesk-tectonic-'));
+    const marker = path.join(dir, 'pwned.txt');
+    await engine.compile({ mainTex: `\\documentclass{article}\\begin{document}\\immediate\\write18{echo x > "${marker.replace(/\\/g, '/')}"}ok\\end{document}`, templateDir: TEMPLATES });
+    expect(existsSync(marker)).toBe(false);
+    await rm(dir, { recursive: true, force: true });
   }, 60_000);
 });

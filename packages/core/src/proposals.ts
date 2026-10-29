@@ -75,8 +75,22 @@ export interface AppliedProposal {
   lessons: LessonMeta[];
 }
 
+/** Proposals being applied right now: the same card can show in two places, and a second click must not apply it twice. */
+const applying = new Set<string>();
+
 /** Apply a pending proposal (with the tutor's edits) to the workspace, then mark it applied. */
 export async function applyProposal(ws: WorkspaceService, store: ProposalStore, id: string, edit: ProposalEdit = {}): Promise<AppliedProposal> {
+  const key = path.join(store.dir, id);
+  if (applying.has(key)) throw new Error('This proposal is already being applied.');
+  applying.add(key);
+  try {
+    return await applyNow(ws, store, id, edit);
+  } finally {
+    applying.delete(key);
+  }
+}
+
+async function applyNow(ws: WorkspaceService, store: ProposalStore, id: string, edit: ProposalEdit): Promise<AppliedProposal> {
   const p = await store.get(id);
   if (!p) throw new Error('This proposal no longer exists.');
   if (p.status !== 'pending') throw new Error(`This proposal was already ${p.status}.`);

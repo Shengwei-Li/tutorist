@@ -22,8 +22,30 @@ export class StudentGit {
     return StudentGit.available;
   }
 
-  private git(args: string[]) {
-    return run('git', args, { cwd: this.dir, windowsHide: true });
+  /** Per repository: one git operation at a time in this process (the saves of one lesson arrive together). */
+  private static queues = new Map<string, Promise<unknown>>();
+
+  private exclusive<T>(fn: () => Promise<T>): Promise<T> {
+    const key = path.resolve(this.dir).toLowerCase();
+    const next = (StudentGit.queues.get(key) ?? Promise.resolve()).then(fn, fn);
+    const settled = next.catch(() => {});
+    StudentGit.queues.set(key, settled);
+    void settled.then(() => {
+      if (StudentGit.queues.get(key) === settled) StudentGit.queues.delete(key);
+    });
+    return next;
+  }
+
+  /** The MCP server is another process and can hold the index briefly: a busy index.lock is retried for a few seconds. */
+  private async git(args: string[]) {
+    for (let i = 0; ; i++) {
+      try {
+        return await run('git', args, { cwd: this.dir, windowsHide: true });
+      } catch (e) {
+        if (i >= 20 || !/index\.lock/.test(String((e as { stderr?: string }).stderr ?? e))) throw e;
+        await new Promise((r) => setTimeout(r, 100 + i * 50));
+      }
+    }
   }
 
   async init(): Promise<boolean> {
@@ -45,12 +67,16 @@ export class StudentGit {
   /** Stage everything and commit; returns the new short hash, or null when nothing changed / git missing. */
   async commitAll(message: string): Promise<string | null> {
     if (!(await StudentGit.isAvailable())) return null;
-    await this.git(['add', '-A']);
-    const { stdout } = await this.git(['status', '--porcelain']);
-    if (!stdout.trim()) return null;
-    await this.git(['commit', '-q', '-m', message]);
-    const head = await this.git(['rev-parse', '--short', 'HEAD']);
-    return head.stdout.trim();
+    return this.exclusive(async () => {
+      await this.git(['add', '-A']);
+      // What was staged, not what the folder holds now: another save may have written a file since the
+      // add, and committing "nothing staged" would fail. That file goes in with the next commit.
+      const { stdout } = await this.git(['diff', '--cached', '--name-only']);
+      if (!stdout.trim()) return null;
+      await this.git(['commit', '-q', '-m', message]);
+      const head = await this.git(['rev-parse', '--short', 'HEAD']);
+      return head.stdout.trim();
+    });
   }
 
   async log(limit = 20): Promise<{ hash: string; date: string; message: string }[]> {

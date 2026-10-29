@@ -1,7 +1,7 @@
 import { readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { execText, which, type ResolvedCommand } from '@tutordesk/core';
-import { REQUIRED_TEX_FILES, type EngineInfo } from './types.js';
+import { REQUIRED_TEX_FILES, type BundledTectonic, type EngineInfo } from './types.js';
 
 const isWin = process.platform === 'win32';
 const exe = (name: string) => (isWin ? `${name}.exe` : name);
@@ -42,6 +42,10 @@ async function knownBinDirs(env: NodeJS.ProcessEnv): Promise<string[]> {
 export interface DetectOptions {
   /** User-configured bin directory, tried first. */
   binDir?: string;
+  /** The app's own Tectonic: used when this computer has no complete TeX. */
+  bundled?: BundledTectonic;
+  /** 'bundled' skips the system TeX (tests, and tutors whose TeX misbehaves). */
+  prefer?: 'auto' | 'bundled';
   env?: NodeJS.ProcessEnv;
   /** Skip the kpsewhich package check (faster). */
   skipPackageCheck?: boolean;
@@ -97,4 +101,26 @@ export async function detectSystemTex(opts: DetectOptions = {}): Promise<EngineI
     if (info) return info;
   }
   return null;
+}
+
+/** The bundled Tectonic, if it is there and runs. */
+export async function detectTectonic(b: BundledTectonic, env: NodeJS.ProcessEnv = process.env): Promise<EngineInfo | null> {
+  const cmd: ResolvedCommand = { command: b.binary, prefixArgs: [] };
+  const ver = await execText(cmd, ['--version'], { env, timeoutMs: 20_000 }).catch(() => null);
+  if (!ver || ver.code !== 0) return null;
+  const version = ver.stdout.trim().split(/\r?\n/)[0] || 'Tectonic';
+  return { kind: 'tectonic', binDir: path.dirname(b.binary), version, xelatex: cmd, cacheDir: b.cacheDir, missingFiles: [] };
+}
+
+/**
+ * The engine to compile with: the tutor's own TeX when it has every package the templates need,
+ * otherwise the bundled Tectonic, otherwise whatever TeX there is (it reports the missing packages).
+ */
+export async function detectTex(opts: DetectOptions = {}): Promise<EngineInfo | null> {
+  const env = opts.env ?? process.env;
+  const bundled = async () => (opts.bundled ? detectTectonic(opts.bundled, env) : null);
+  if (opts.prefer === 'bundled') return bundled();
+  const system = await detectSystemTex(opts);
+  if (system && (system.missingFiles.length === 0 || opts.skipPackageCheck)) return system;
+  return (await bundled()) ?? system;
 }

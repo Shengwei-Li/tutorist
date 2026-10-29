@@ -18,6 +18,9 @@ coverage/
 *.snm
 prototypes/**/build/
 
+# Tectonic and its offline cache, fetched at build time (scripts/fetch-tectonic.mjs)
+apps/desktop/resources/tectonic/
+
 # local dev workspaces
 .tutordesk-dev/
 eval-results/

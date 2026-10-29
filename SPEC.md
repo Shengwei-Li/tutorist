@@ -754,7 +754,7 @@ workspace-template/   默认的 .claude/skills、agents、templates（包含考�
 - **M1 已完成（真实模型待验证）**：ApiProvider（OpenRouter / Anthropic / OpenAI / 兼容接口，key 加密存储）；产出物 JSON schema 与 LaTeX 渲染器（讲义、练习卷、底稿、Beamer）；课包流水线（计划卡 → 老师确认 → 生成 → 确定性检查 → 实编译 → rubric 评审 → 最多 2 轮修订）；写作批改（照片识别 → 老师确认 → 四项区间 + 定位批注 → 老师终评 → 错因库）；工作台与批改界面；评测集 `pnpm eval`（P01/P02/P03/P16 + 范文批改）。
 - **2026-10-27 方向调整**：改为"教学外壳 + 教学工具库，由 coding agent 干活"（附录 E），插入 M1.5 / M1.6。
 - **M1.5 进行中（2026-10-27）**：H1 `ArtifactStudio` + `packages/toolbox`（18 个工具、MCP 服务、单文件打包）、H2 AGENTS.md / skills 生成、H3–H5 `packages/harness`（Claude Code / Codex app-server / ACP 适配器、权限模式、线程存储）已写完，类型检查通过；测试已写好但**尚未运行**；尚未用真实 harness 验证；H6 API 会话和 H7 界面未开始。
-- **尚未完成**：用真实模型跑评测并调提示词；PDF 框选修改（目前是整份文档按指令修改）；PDF 原件导入解析（目前只支持文本材料）；Tectonic 分发。
+- **尚未完成**：用真实模型跑评测并调提示词；PDF 框选修改（目前是整份文档按指令修改）；PDF 原件导入解析（目前只支持文本材料）；安装包的签名和公证（Tectonic 已内置，2026-10-29）。
 
 ## 13. 风险与未决问题
 

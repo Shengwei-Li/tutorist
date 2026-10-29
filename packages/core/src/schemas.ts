@@ -146,8 +146,8 @@ export const SubmissionMeta = z.object({
   /** The task prompt the student answered. */
   prompt: z.string().default(''),
   source: z.enum(['text', 'image']),
-  /** Original upload inside the submission folder, for image submissions. */
-  original: z.string().optional(),
+  /** Original upload inside the submission folder, for image submissions: a file name, never a path. */
+  original: z.string().regex(/^original\.[a-z0-9]{1,5}$/).optional(),
   /** Set once the teacher has confirmed the transcription (image) or pasted text. */
   textConfirmed: z.boolean().default(false),
   /** Teacher's final band per criterion; only these feed the trend charts. */

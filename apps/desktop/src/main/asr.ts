@@ -60,8 +60,20 @@ export class SpeechService {
   }
 
   /** Download and verify the model; progress goes to the window that asked. */
+  private installing = false;
+
   async install(sender: WebContents): Promise<void> {
-    if (this.download) throw new Error('A speech model is already downloading.');
+    // Claimed before the first await: a second click must not start a second download into the same files.
+    if (this.installing) throw new Error('A speech model is already downloading.');
+    this.installing = true;
+    try {
+      await this.installNow(sender);
+    } finally {
+      this.installing = false;
+    }
+  }
+
+  private async installNow(sender: WebContents): Promise<void> {
     const e = await this.engine();
     const b = await this.base();
     const abort = new AbortController();
