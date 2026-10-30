@@ -13,6 +13,7 @@ import { writeAgentKit } from '@tutordesk/toolbox';
 import {
   BEAMER_THEMES,
   type BeamerTheme,
+  type CliAgentId,
   type CompileOutcome,
   type CompileSampleRequest,
   type EditionMode,
@@ -228,6 +229,7 @@ export function registerIpc(): void {
   h('threads:configure', (_e, id: string, patch: Parameters<ThreadService['configure']>[1]) => threads.configure(id, patch));
   h('threads:attach', (_e, studentId: string) => threads.attach(studentId));
   h('agents:status', () => threads.status());
+  h('agents:models', (_e, agent: CliAgentId, refresh?: boolean) => threads.models(agent, refresh === true));
   h('settings:update', async (_e, raw: unknown) => {
     const patch = SettingsPatch.parse(raw);
     tex = undefined;

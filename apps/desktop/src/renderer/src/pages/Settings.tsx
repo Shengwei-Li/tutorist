@@ -1,9 +1,9 @@
 import { Button, Dialog, Field, KeyValue, Panel, Select, StatusMark, TextInput } from '@tutordesk/ui';
 import { useEffect, useState } from 'react';
 import type { ModelTier } from '@tutordesk/providers/types';
-import { AGENTS, API_GATEWAYS, BEAMER_THEMES, UI_SCALES, type AgentMode, type AppSettings, type ApiGateway, type BeamerTheme, type CompileOutcome, type CompileSampleRequest, type VoiceEngine, type VoiceLanguage, type WorkspaceChoice } from '../../../shared/ipc';
+import { AGENTS, API_GATEWAYS, BEAMER_THEMES, UI_SCALES, type AgentMode, type AppSettings, type ApiGateway, type BeamerTheme, type CliAgentId, type CompileOutcome, type CompileSampleRequest, type VoiceEngine, type VoiceLanguage, type WorkspaceChoice } from '../../../shared/ipc';
 import { useT, type TKey } from '../i18n';
-import { useAgentStatus } from '../thread/AgentControls';
+import { ModelOptions, useAgentModels, useAgentStatus } from '../thread/AgentControls';
 import { Progress, mb, useSpeechModel } from '../thread/Voice';
 import { AGENT_LABEL, fill } from '../thread/labels';
 import { PdfFrame } from '../PdfFrame';
@@ -58,18 +58,43 @@ function Agents({ settings, update }: { settings: AppSettings; update: (p: Parti
           );
         })}
       </div>
-      <div className="mt-4 w-72">
-        <Field label={t('agents.mode')} hint={t(`thread.modeHint.${settings.agentMode}` as TKey)}>
-          <Select data-testid="default-mode" value={settings.agentMode} onChange={(e) => void update({ agentMode: e.target.value as AgentMode })}>
-            {(['guarded', 'collaborate', 'full'] as const).map((m) => (
-              <option key={m} value={m}>
-                {t(`thread.mode.${m}` as TKey)}
-              </option>
-            ))}
-          </Select>
-        </Field>
+      <div className="mt-4 flex flex-wrap gap-x-6 gap-y-4">
+        {settings.agent !== 'api' && <DefaultModel agent={settings.agent} settings={settings} update={update} />}
+        <div className="w-72">
+          <Field label={t('agents.mode')} hint={t(`thread.modeHint.${settings.agentMode}` as TKey)}>
+            <Select data-testid="default-mode" value={settings.agentMode} onChange={(e) => void update({ agentMode: e.target.value as AgentMode })}>
+              {(['guarded', 'collaborate', 'full'] as const).map((m) => (
+                <option key={m} value={m}>
+                  {t(`thread.mode.${m}` as TKey)}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        </div>
       </div>
     </Panel>
+  );
+}
+
+/** The model new conversations with the default agent start on; the list is the agent's own. */
+function DefaultModel({ agent, settings, update }: { agent: CliAgentId; settings: AppSettings; update: (p: Partial<AppSettings>) => Promise<void> }) {
+  const t = useT();
+  const { list, failed } = useAgentModels(agent);
+  const value = settings.agentModels?.[agent] ?? '';
+  const choose = (model: string) => {
+    const next = { ...settings.agentModels };
+    if (model) next[agent] = model;
+    else delete next[agent];
+    void update({ agentModels: next });
+  };
+  return (
+    <div className="w-72">
+      <Field label={t('agents.model')} hint={fill(t('agents.modelHint'), { agent: AGENT_LABEL[agent] })}>
+        <Select data-testid="default-model" value={value} onChange={(e) => choose(e.target.value)}>
+          <ModelOptions list={list} failed={failed} value={value} />
+        </Select>
+      </Field>
+    </div>
   );
 }
 

@@ -229,6 +229,23 @@ export async function runSmoke(win: BrowserWindow, outDir: string): Promise<void
       await click('proposal-confirm');
       return ok && (await until(`!${q('proposal-profile')} && document.body.innerText.includes('IELTS Academic · 7')`, 10_000));
     });
+    await step('ai: choose a model', async () => {
+      // A local agent offers its own models (scripted in fake mode); the choice stays with the conversation.
+      await click('agent-claude-code');
+      const listed = await until(`${q('agent-model')}?.options.length > 2`, 10_000);
+      await type('agent-model', 'sonnet');
+      const shown = await until(`${q('agent-model')}?.parentElement.textContent.startsWith('Sonnet')`, 5000);
+      await shot('20b-assistant-model');
+      // Close the conversation and open it again: the choice comes back from the thread file.
+      await js(`document.querySelector('[data-testid="assistant"] header button[aria-label]').click()`);
+      await until(q('assistant-open'), 5000);
+      await click('assistant-open');
+      const kept = await until(`${q('agent-model')}?.value === 'sonnet'`, 10_000);
+      await type('agent-model', '');
+      await until(`${q('agent-model')}?.value === ''`, 5000);
+      await click('agent-api');
+      return listed && shown && kept && (await until(`!${q('agent-model')}`, 5000));
+    });
   }
 
   await step('permissions: microphone only', async () => {
@@ -309,7 +326,17 @@ export async function runSmoke(win: BrowserWindow, outDir: string): Promise<void
     const cloud = await until(`!${q('voice-language')}`, 5000);
     await shot('10c-settings-voice-cloud');
     await type('voice-engine', 'local');
-    return ok && cloud && (await until(q('voice-language'), 5000));
+    const local = await until(q('voice-language'), 5000);
+    // With a local agent as the default, its own models are offered for new conversations.
+    let model = true;
+    if (fake) {
+      await click('default-agent-codex');
+      model = await until(`${q('default-model')}?.options.length > 1`, 10_000);
+      await js(`${q('default-model')}.scrollIntoView({ block: 'center' })`);
+      await shot('10d-settings-agent-model');
+      await click('default-agent-api');
+    }
+    return ok && cloud && local && model;
   });
   await step('dark mode', async () => {
     nativeTheme.themeSource = 'dark';

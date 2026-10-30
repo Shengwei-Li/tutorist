@@ -12,6 +12,7 @@ import {
   decide,
   editableByAgent,
   insideRoot,
+  listModels,
   opencodePermissionConfig,
   splitToolName,
   type HarnessEvent,
@@ -184,6 +185,47 @@ describe('AcpSession (Agent Client Protocol)', () => {
     const events = await done;
     expect(events.some((e) => e.type === 'text' && e.delta === 'old history')).toBe(false);
     expect(events.at(-1)).toMatchObject({ type: 'turn_end', status: 'interrupted' });
+  });
+});
+
+describe('choosing a model', () => {
+  it('lists Codex models across pages, without hidden ones, and names the default', async () => {
+    expect(await listModels('codex', { cwd: tmp, executable: node('codex') })).toEqual({
+      models: [
+        { id: 'gpt-fast', label: 'GPT-FAST', description: 'gpt-fast model' },
+        { id: 'gpt-deep', label: 'GPT-DEEP', description: 'gpt-deep model' },
+      ],
+      defaultLabel: 'GPT-FAST',
+    });
+  });
+
+  it('lists OpenCode models from `opencode models`', async () => {
+    expect(await listModels('opencode', { cwd: tmp, executable: node('opencode') })).toEqual({
+      models: [
+        { id: 'zen/small', label: 'zen/small' },
+        { id: 'zen/big', label: 'zen/big' },
+      ],
+    });
+  });
+
+  it('starts Codex with the chosen model', async () => {
+    const s = new CodexSession(opts('guarded', { model: 'gpt-deep' }), { executable: node('codex') });
+    sessions.push(s);
+    await s.start();
+    expect((await sent()).find((m) => m.method === 'thread/start')!.params).toMatchObject({ model: 'gpt-deep' });
+  });
+
+  it('sets the ACP model option only when it differs', async () => {
+    const spec = { harness: 'opencode' as const, executable: node('acp'), program: 'fake-acp', args: [] };
+    const s = new AcpSession(opts('guarded', { model: 'zen/big' }), spec);
+    sessions.push(s);
+    await s.start();
+    expect((await sent()).find((m) => m.method === 'session/set_config_option')!.params).toEqual({ sessionId: 'ses-1', configId: 'model', value: 'zen/big' });
+
+    const same = new AcpSession(opts('guarded', { model: 'zen/small' }), spec);
+    sessions.push(same);
+    await same.start();
+    expect((await sent()).filter((m) => m.method === 'session/set_config_option')).toHaveLength(1);
   });
 });
 

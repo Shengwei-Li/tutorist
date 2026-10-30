@@ -44,7 +44,7 @@ export async function loadSettings(): Promise<AppSettings> {
   if (AGENTS.includes(process.env.TUTORDESK_AGENT as AppSettings['agent'])) merged.agent = process.env.TUTORDESK_AGENT as AppSettings['agent'];
   if (!API_GATEWAYS.includes(merged.api.gateway)) merged.api.gateway = 'openrouter';
   // A hand-edited or older settings file: drop optional values that are not valid.
-  for (const k of ['voiceLanguage', 'voiceEngine', 'uiScale', 'pet'] as const) {
+  for (const k of ['agentModels', 'voiceLanguage', 'voiceEngine', 'uiScale', 'pet'] as const) {
     if (merged[k] !== undefined && !SettingsPatch.shape[k].safeParse(merged[k]).success) delete merged[k];
   }
   cache = merged;

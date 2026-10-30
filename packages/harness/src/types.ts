@@ -73,6 +73,20 @@ export interface HarnessSession {
   close(): Promise<void>;
 }
 
+/** A model an agent offers the tutor's account, under the agent's own name for it. */
+export interface ModelChoice {
+  /** What the agent takes as its model setting. */
+  id: string;
+  label: string;
+  description?: string;
+}
+
+export interface ModelList {
+  models: ModelChoice[];
+  /** The model the agent uses when none is chosen, when it says. */
+  defaultLabel?: string;
+}
+
 export interface HarnessHealth {
   harness: CliHarnessId;
   installed: boolean;

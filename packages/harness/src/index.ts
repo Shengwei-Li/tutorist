@@ -6,4 +6,5 @@ export * from './codex.js';
 export * from './acp.js';
 export * from './api.js';
 export * from './registry.js';
+export * from './models.js';
 export * from './threads.js';

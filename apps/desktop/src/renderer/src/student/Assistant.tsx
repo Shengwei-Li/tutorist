@@ -24,7 +24,7 @@ export function StudentAssistant({ profile, proposals, onChanged, onClose }: { p
   return (
     <aside data-testid="assistant" className="flex w-[440px] shrink-0 flex-col border-l border-border bg-surface">
       <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-3">
-        {thread.view && <AgentControls agent={agent} mode={thread.view.mode} disabled={thread.running} onChange={(p) => void thread.configure(p)} />}
+        {thread.view && <AgentControls agent={agent} mode={thread.view.mode} model={thread.view.model} defaultModel={thread.view.defaultModel} disabled={thread.running} compact onChange={(p) => void thread.configure(p)} />}
         <Button variant="ghost" className="ml-auto h-7 px-2" aria-label={t('common.close')} onClick={onClose}>
           <X size={16} strokeWidth={1.5} />
         </Button>
@@ -55,7 +55,7 @@ export function IntakeAssistant({ heading, onCreated }: { heading: ReactNode; on
     <div className="flex min-h-0 flex-1 flex-col">
       <header className="flex h-12 shrink-0 items-center gap-4 border-b border-border px-8">
         {heading}
-        <div className="ml-auto">{thread.view && <AgentControls agent={agent} mode={thread.view.mode} disabled={thread.running} onChange={(p) => void thread.configure(p)} />}</div>
+        <div className="ml-auto">{thread.view && <AgentControls agent={agent} mode={thread.view.mode} model={thread.view.model} defaultModel={thread.view.defaultModel} disabled={thread.running} onChange={(p) => void thread.configure(p)} />}</div>
       </header>
       <ThreadPanel
         thread={thread}

@@ -1,6 +1,9 @@
 import { z } from 'zod';
 import { AGENTS, API_GATEWAYS, BEAMER_THEMES, UI_SCALES } from '../shared/ipc.js';
 
+/** A model id as an agent takes it ("opus", "gpt-6-luna", "opencode/big-pickle", "claude-opus-5-5[1m]"). */
+export const ModelId = z.string().regex(/^\w[\w.:/@[\]-]{0,199}$/);
+
 /**
  * What the window may change. The workspace folder (switched through its own checks) and the TeX
  * folder (whose programs run) are not on the list.
@@ -12,6 +15,7 @@ export const SettingsPatch = z
     aiBackend: z.enum(['claude-cli', 'api']),
     agent: z.enum(AGENTS),
     agentMode: z.enum(['guarded', 'collaborate', 'full']),
+    agentModels: z.object({ 'claude-code': ModelId, codex: ModelId, opencode: ModelId }).partial().strict(),
     api: z.object({
       gateway: z.enum(API_GATEWAYS),
       baseURL: z.union([z.url({ protocol: /^https?$/ }).max(500), z.literal('')]).optional(),

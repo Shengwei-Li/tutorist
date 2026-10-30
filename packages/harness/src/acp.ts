@@ -4,11 +4,13 @@ import path from 'node:path';
 import type {
   ContentBlock,
   InitializeResponse,
+  LoadSessionResponse,
   NewSessionResponse,
   PermissionOption,
   PromptResponse,
   RequestPermissionRequest,
   RequestPermissionResponse,
+  SessionConfigOption,
   SessionNotification,
   ToolKind,
 } from '@agentclientprotocol/sdk';
@@ -125,10 +127,12 @@ export class AcpSession extends BaseSession {
     const mcpServers = [
       { name: 'tutordesk', command: this.opts.mcp.command, args: this.opts.mcp.args, env: Object.entries(this.opts.mcp.env ?? {}).map(([name, value]) => ({ name, value })) },
     ];
+    let options: SessionConfigOption[] | undefined;
     if (this.opts.resume && this.caps.agentCapabilities?.loadSession) {
       this.loading = true;
       try {
-        await peer.request('session/load', { sessionId: this.opts.resume, cwd: this.opts.cwd, mcpServers });
+        const r = await peer.request<LoadSessionResponse | null>('session/load', { sessionId: this.opts.resume, cwd: this.opts.cwd, mcpServers });
+        options = r?.configOptions ?? undefined;
       } finally {
         this.loading = false;
       }
@@ -137,7 +141,16 @@ export class AcpSession extends BaseSession {
     } else {
       const r = await peer.request<NewSessionResponse>('session/new', { cwd: this.opts.cwd, mcpServers });
       this.nativeId = r.sessionId;
+      options = r.configOptions ?? undefined;
     }
+    if (this.opts.model) await this.chooseModel(peer, this.opts.model, options);
+  }
+
+  /** ACP has no model parameter: the agent offers it as a session config option of category "model". */
+  private async chooseModel(peer: JsonRpcPeer, model: string, options: SessionConfigOption[] | undefined): Promise<void> {
+    const option = options?.find((o) => o.category === 'model');
+    if (option?.type === 'select' && option.currentValue === model) return;
+    await peer.request('session/set_config_option', { sessionId: this.nativeId, configId: option?.id ?? 'model', value: model });
   }
 
   protected async beginTurn(input: UserTurn): Promise<void> {

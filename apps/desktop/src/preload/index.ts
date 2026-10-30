@@ -90,6 +90,7 @@ const api: DesktopApi = {
   },
   agents: {
     status: () => invoke('agents:status'),
+    models: (agent, refresh) => invoke('agents:models', agent, refresh),
   },
   health: {
     ai: () => invoke('health:ai'),

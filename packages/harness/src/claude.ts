@@ -34,6 +34,16 @@ export async function resolveClaudeExecutable(env?: NodeJS.ProcessEnv): Promise<
   return script ?? cmd.command;
 }
 
+/** The environment for the Claude Code process. */
+export function claudeEnv(extra?: NodeJS.ProcessEnv): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const [k, v] of Object.entries({ ...process.env, ...extra })) if (v !== undefined) env[k] = v;
+  for (const v of NESTING_VARS) delete env[v];
+  // Mode A runs on the tutor's own subscription login, never on a stray API key (SPEC §7.3).
+  delete env.ANTHROPIC_API_KEY;
+  return env;
+}
+
 /** Project settings may carry hooks or allow rules; only a fully trusted session may load them. */
 const PROJECT_SETTINGS = ['.claude/settings.json', '.claude/settings.local.json'];
 
@@ -79,15 +89,6 @@ export class ClaudeCodeSession extends BaseSession {
     super(opts);
   }
 
-  private childEnv(): Record<string, string> {
-    const env: Record<string, string> = {};
-    for (const [k, v] of Object.entries({ ...process.env, ...this.opts.env })) if (v !== undefined) env[k] = v;
-    for (const v of NESTING_VARS) delete env[v];
-    // Mode A runs on the tutor's own subscription login, never on a stray API key (SPEC §7.3).
-    delete env.ANTHROPIC_API_KEY;
-    return env;
-  }
-
   async start(): Promise<void> {
     const mode = this.opts.mode;
     if (mode !== 'full') {
@@ -102,7 +103,7 @@ export class ClaudeCodeSession extends BaseSession {
         resume: this.opts.resume,
         model: this.opts.model,
         pathToClaudeCodeExecutable: executable,
-        env: this.childEnv(),
+        env: claudeEnv(this.opts.env),
         abortController: this.abort,
         includePartialMessages: true,
         // Workspace CLAUDE.md and skills only; the tutor's personal settings and plugins stay out.

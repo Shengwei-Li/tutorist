@@ -150,7 +150,7 @@ export function useThread(subject: ThreadSubject, onSaved?: () => void) {
   );
 
   const configure = useCallback(
-    async (patch: { agent?: AgentId; mode?: AgentMode }) => {
+    async (patch: { agent?: AgentId; mode?: AgentMode; model?: string | null }) => {
       if (!id) return;
       setError(null);
       try {

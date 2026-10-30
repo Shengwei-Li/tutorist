@@ -277,7 +277,7 @@ export function LessonPage({ studentId, lessonId, studentName, theme, onBack }: 
         <p className="min-w-0 truncate text-[13px] text-text-3">
           {studentName} / <span className="font-medium text-text">L{String(lesson.number).padStart(2, '0')}{lesson.topic ? ` · ${lesson.topic}` : ''}</span> · {lesson.date} · {lesson.minutes} min
         </p>
-        <div className="ml-auto">{thread.view && <AgentControls agent={agent} mode={thread.view.mode} disabled={thread.running} onChange={(p) => void thread.configure(p)} />}</div>
+        <div className="ml-auto">{thread.view && <AgentControls agent={agent} mode={thread.view.mode} model={thread.view.model} defaultModel={thread.view.defaultModel} disabled={thread.running} onChange={(p) => void thread.configure(p)} />}</div>
       </header>
 
       <div className="grid min-h-0 flex-1 grid-cols-[minmax(420px,1fr)_minmax(400px,40%)]">

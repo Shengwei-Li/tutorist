@@ -33,6 +33,8 @@ export const ThreadRecord = z.object({
   mode: z.enum(['guarded', 'collaborate', 'full']),
   /** Native session per harness: switching harness starts a new one and keeps the old to switch back. */
   sessions: z.record(z.string(), z.string()).default({}),
+  /** The model chosen per harness (ids differ between agents); absent means the default from Settings. */
+  models: z.record(z.string(), z.string()).default({}),
   entries: z.array(ThreadEntry).default([]),
   createdAt: z.string(),
   updatedAt: z.string(),
@@ -58,7 +60,7 @@ export class ThreadStore {
 
   async create(o: Pick<ThreadRecord, 'title' | 'subject' | 'harness' | 'mode'>): Promise<ThreadRecord> {
     const now = new Date().toISOString();
-    const t: ThreadRecord = { schemaVersion: 1, id: randomUUID(), sessions: {}, entries: [], createdAt: now, updatedAt: now, ...o };
+    const t: ThreadRecord = { schemaVersion: 1, id: randomUUID(), sessions: {}, models: {}, entries: [], createdAt: now, updatedAt: now, ...o };
     await mkdir(this.dir, { recursive: true });
     await writeJson(this.file(t.id), t);
     return t;

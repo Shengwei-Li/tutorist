@@ -18,6 +18,8 @@ export type ApiGateway = (typeof API_GATEWAYS)[number];
 export const AGENTS = ['claude-code', 'codex', 'opencode', 'api'] as const;
 export type AgentId = (typeof AGENTS)[number];
 export type AgentMode = 'guarded' | 'collaborate' | 'full';
+/** The agents that run as local programs, each offering its own models. */
+export type CliAgentId = Exclude<AgentId, 'api'>;
 
 export interface AppSettings {
   workspaceRoot: string;
@@ -29,6 +31,8 @@ export interface AppSettings {
   /** Default agent for new threads, and its permission mode. */
   agent: AgentId;
   agentMode: AgentMode;
+  /** Model for new conversations per agent; unset is the agent's own default. */
+  agentModels?: Partial<Record<CliAgentId, string>>;
   api: { gateway: ApiGateway; baseURL?: string; models: Record<ModelTier, string> };
   studio: { name: string; monogram: string };
   tutorName: string;
@@ -169,6 +173,10 @@ export interface ThreadView {
   subject: ThreadSubject;
   agent: AgentId;
   mode: AgentMode;
+  /** The model chosen in this conversation for its agent; unset follows Settings. */
+  model?: string;
+  /** The model Settings gives new conversations with this agent; unset is the agent's default. */
+  defaultModel?: string;
   entries: ThreadEntry[];
   /** A turn is in progress (e.g. after reopening the page mid-turn). */
   running: boolean;
@@ -186,6 +194,13 @@ export interface AgentStatus {
   version?: string;
   /** Plain-language next step when not ready. */
   detail?: string;
+}
+
+/** The models an agent offers the tutor's account, as the agent itself reports them. */
+export interface AgentModels {
+  models: { id: string; label: string; description?: string }[];
+  /** What the agent uses when no model is chosen, when it says. */
+  defaultLabel?: string;
 }
 
 /** A folder the tutor picked for the workspace, and what switching to it would mean. */
@@ -285,13 +300,16 @@ export interface DesktopApi {
     send(threadId: string, text: string): Promise<void>;
     respond(threadId: string, requestId: string, decision: 'allow' | 'deny'): Promise<void>;
     interrupt(threadId: string): Promise<void>;
-    configure(threadId: string, patch: { agent?: AgentId; mode?: AgentMode }): Promise<ThreadView>;
+    /** model: null goes back to the default. */
+    configure(threadId: string, patch: { agent?: AgentId; mode?: AgentMode; model?: string | null }): Promise<ThreadView>;
     /** Copy files the tutor picks into the student's materials/raw; returns workspace-relative paths. */
     attach(studentId: string): Promise<string[]>;
     onEvent(cb: (threadId: string, ev: ThreadEvent) => void): () => void;
   };
   agents: {
     status(): Promise<AgentStatus[]>;
+    /** Asked of the agent and remembered; refresh asks again. */
+    models(agent: CliAgentId, refresh?: boolean): Promise<AgentModels>;
   };
   speech: {
     status(): Promise<SpeechStatus>;

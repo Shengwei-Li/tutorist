@@ -1,4 +1,4 @@
-// A scripted stand-in for `codex app-server` (argv "codex") or an ACP agent (argv "acp").
+// A scripted stand-in for `codex app-server` (argv "codex"), an ACP agent (argv "acp") or `opencode models`.
 // It speaks just enough protocol to exercise the adapters; FAKE_LOG receives every message it reads.
 import { appendFileSync } from 'node:fs';
 import readline from 'node:readline';
@@ -67,6 +67,12 @@ async function codex(msg) {
     case 'turn/interrupt':
       hang?.();
       return {};
+    case 'model/list': {
+      const model = (id, extra = {}) => ({ id, model: id, displayName: id.toUpperCase(), description: `${id} model`, hidden: false, isDefault: false, ...extra });
+      return p.cursor
+        ? { data: [model('gpt-old', { hidden: true })], nextCursor: null }
+        : { data: [model('gpt-fast', { isDefault: true }), model('gpt-deep')], nextCursor: 'page-2' };
+    }
     default:
       throw new Error(`unexpected ${msg.method}`);
   }
@@ -78,7 +84,9 @@ async function agent(msg) {
     case 'initialize':
       return { protocolVersion: 1, agentCapabilities: { loadSession: true, promptCapabilities: { image: false } } };
     case 'session/new':
-      return { sessionId: 'ses-1' };
+      return { sessionId: 'ses-1', configOptions: [{ id: 'model', name: 'Model', category: 'model', type: 'select', currentValue: 'zen/small', options: [{ value: 'zen/small', name: 'Small' }, { value: 'zen/big', name: 'Big' }] }] };
+    case 'session/set_config_option':
+      return { configOptions: [] };
     case 'session/load':
       notify('session/update', { sessionId: p.sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'old history' } } });
       return null;
@@ -115,6 +123,12 @@ async function agent(msg) {
     default:
       throw new Error(`unexpected ${msg.method}`);
   }
+}
+
+// `opencode models`
+if (flavour === 'opencode' && process.argv[3] === 'models') {
+  process.stdout.write('zen/small\nzen/big\n\nsome banner line\n');
+  process.exit(0);
 }
 
 readline.createInterface({ input: process.stdin }).on('line', async (line) => {

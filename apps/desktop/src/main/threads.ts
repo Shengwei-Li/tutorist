@@ -1,25 +1,28 @@
-import { copyFile, mkdir } from 'node:fs/promises';
+import { copyFile, mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { app, dialog, type WebContents } from 'electron';
-import type { WorkspaceService } from '@tutordesk/core';
+import { writeJson, type WorkspaceService } from '@tutordesk/core';
 import {
   ApiSession,
   HARNESSES,
   ThreadStore,
   checkHarness,
   createSession,
+  listModels,
   subjectInstructions,
   tutordeskMcpLaunch,
   type HarnessEvent,
   type HarnessSession,
+  type ModelList,
   type ThreadEntry,
   type ThreadRecord,
 } from '@tutordesk/harness';
 import { createLanguageModel } from '@tutordesk/providers';
 import type { TexEngine } from '@tutordesk/tex';
 import { Toolbox, apiSystemPrompt } from '@tutordesk/toolbox';
-import type { AgentId, AgentMode, AgentStatus, ThreadEvent, ThreadSubject, ThreadView } from '../shared/ipc.js';
+import type { AgentId, AgentMode, AgentModels, AgentStatus, CliAgentId, ThreadEvent, ThreadSubject, ThreadView } from '../shared/ipc.js';
 import { loadApiKey, loadSettings } from './settings.js';
+import { ModelId } from './settings-patch.js';
 import { texOptions } from './tex-bundle.js';
 
 /** Compile-time check that the renderer's mirror matches the harness event type. */
@@ -64,13 +67,16 @@ export class ThreadService {
     return new ThreadStore((await this.deps.ws()).root);
   }
 
-  private view(t: ThreadRecord): ThreadView {
+  private async view(t: ThreadRecord): Promise<ThreadView> {
     const l = this.live.get(t.id);
+    const s = await loadSettings();
     return {
       id: t.id,
       subject: t.subject as ThreadSubject,
       agent: t.harness,
       mode: t.mode,
+      model: t.models[t.harness],
+      defaultModel: t.harness === 'api' ? undefined : s.agentModels?.[t.harness],
       entries: t.entries as ThreadView['entries'],
       running: l?.running ?? false,
       pending: l ? [...l.pending.values()] : [],
@@ -96,7 +102,8 @@ export class ThreadService {
     return this.view(await store.create({ title, subject, harness: s.agent, mode: s.agentMode }));
   }
 
-  async configure(threadId: string, patch: { agent?: AgentId; mode?: AgentMode }): Promise<ThreadView> {
+  async configure(threadId: string, patch: { agent?: AgentId; mode?: AgentMode; model?: string | null }): Promise<ThreadView> {
+    if (patch.model != null && !ModelId.safeParse(patch.model).success) throw new Error('Not a model name.');
     const store = await this.store();
     const l = this.live.get(threadId);
     if (l?.running) throw new Error('Wait for the agent to finish, or stop it, before switching.');
@@ -108,6 +115,8 @@ export class ThreadService {
       ...x,
       harness: patch.agent ?? x.harness,
       mode: patch.mode ?? x.mode,
+      // The model belongs to the agent in use after this change.
+      models: patch.model === undefined ? x.models : withModel(x.models, patch.agent ?? x.harness, patch.model),
       entries: patch.agent && patch.agent !== x.harness ? [...x.entries, { role: 'system', text: `Switched to ${labelOf(patch.agent)}.`, at: now() }] : x.entries,
     }));
     return this.view(t);
@@ -143,7 +152,10 @@ export class ThreadService {
     const subject = t.subject as ThreadSubject;
     const profile = subject.type === 'workspace' ? null : await w.readProfile(subject.studentId).catch(() => null);
     const instructions = `${subjectInstructions(subject, { student: profile?.ok ? profile.value.name : undefined })} ${todayLine()}`;
-    const base = { cwd: w.root, mode: t.mode, resume, instructions, mcp: { command: '', args: [] as string[] } };
+    // The thread file is in the workspace, which agents can write: its model name is checked again.
+    const chosen = t.harness === 'api' ? undefined : (t.models[t.harness] ?? s.agentModels?.[t.harness]);
+    const model = chosen && ModelId.safeParse(chosen).success ? chosen : undefined;
+    const base = { cwd: w.root, mode: t.mode, resume, model, instructions, mcp: { command: '', args: [] as string[] } };
 
     let session: HarnessSession;
     if (t.harness === 'api') {
@@ -321,6 +333,30 @@ export class ThreadService {
     return out;
   }
 
+  /**
+   * The agent's models. Asking means starting the agent briefly (a few seconds), so the answer is
+   * remembered on disk: the picker shows the last list at once and this run's answer replaces it.
+   */
+  models(agent: CliAgentId, refresh = false): Promise<AgentModels> {
+    const fresh = this.modelLists.get(agent);
+    if (fresh && !refresh) return fresh;
+    const ask = this.askModels(agent);
+    this.modelLists.set(agent, ask);
+    ask.catch(() => this.modelLists.get(agent) === ask && this.modelLists.delete(agent));
+    if (refresh) return ask;
+    return readModelCache().then((cache) => cache[agent] ?? ask);
+  }
+
+  private modelLists = new Map<CliAgentId, Promise<ModelList>>();
+
+  private async askModels(agent: CliAgentId): Promise<ModelList> {
+    if (process.env.TUTORDESK_FAKE_AI === '1') return FAKE_MODELS[agent];
+    const list = await listModels(agent, { cwd: (await this.deps.ws()).root });
+    const cache = await readModelCache();
+    await writeJson(modelCacheFile(), { ...cache, [agent]: list }).catch(() => {});
+    return list;
+  }
+
   async closeAll(): Promise<void> {
     await Promise.all([...this.live.values()].map((l) => l.session?.close().catch(() => {})));
     this.live.clear();
@@ -345,6 +381,36 @@ function todayLine(): string {
   const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   return `Today is ${d.toLocaleDateString('en-GB', { weekday: 'long' })} ${iso}.`;
 }
+
+function withModel(models: Record<string, string>, agent: AgentId, model: string | null): Record<string, string> {
+  const next = { ...models };
+  if (model) next[agent] = model;
+  else delete next[agent];
+  return next;
+}
+
+const modelCacheFile = () => path.join(app.getPath('userData'), 'agent-models.json');
+
+async function readModelCache(): Promise<Partial<Record<CliAgentId, ModelList>>> {
+  try {
+    return JSON.parse(await readFile(modelCacheFile(), 'utf8')) as Partial<Record<CliAgentId, ModelList>>;
+  } catch {
+    return {};
+  }
+}
+
+/** Development and smoke runs start no agents. */
+const FAKE_MODELS: Record<CliAgentId, ModelList> = {
+  'claude-code': {
+    models: [
+      { id: 'opus', label: 'Opus', description: 'For complex work' },
+      { id: 'sonnet', label: 'Sonnet', description: 'Most efficient for simpler tasks' },
+    ],
+    defaultLabel: 'Opus',
+  },
+  codex: { models: [{ id: 'gpt-fast', label: 'GPT Fast' }], defaultLabel: 'GPT Fast' },
+  opencode: { models: [{ id: 'opencode/big-pickle', label: 'opencode/big-pickle' }] },
+};
 
 function labelOf(agent: AgentId): string {
   return agent === 'api' ? 'API' : (HARNESSES.find((h) => h.id === agent)?.label ?? agent);
